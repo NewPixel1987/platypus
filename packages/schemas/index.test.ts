@@ -17,6 +17,8 @@ import {
   namespaceToolName,
   TOOL_NAME_PATTERN,
   skillSchema,
+  skillCreateSchema,
+  skillUpdateSchema,
   attachmentSchema,
   nextTurnOccupancy,
   attachmentCreateSchema,
@@ -300,6 +302,34 @@ describe("Skill Schema", () => {
       name: "Not Kebab",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("defaults model invocation on and accepts an argument hint", () => {
+    const result = skillSchema.safeParse({
+      ...base,
+      workspaceId: "ws-1",
+      argumentHint: "Describe the release note to write",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.disableModelInvocation).toBe(false);
+  });
+
+  it("enforces the argument hint length in create and update payloads", () => {
+    const hint = "x".repeat(121);
+
+    expect(
+      skillCreateSchema.safeParse({
+        name: base.name,
+        description: base.description,
+        body: base.body,
+        workspaceId: "ws-1",
+        argumentHint: hint,
+      }).success,
+    ).toBe(false);
+    expect(skillUpdateSchema.safeParse({ argumentHint: hint }).success).toBe(
+      false,
+    );
   });
 });
 

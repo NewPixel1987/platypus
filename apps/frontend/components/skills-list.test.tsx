@@ -134,6 +134,31 @@ describe("SkillsList detach", () => {
   });
 });
 
+describe("SkillsList invocation badge", () => {
+  afterEach(() => {
+    skills = [];
+    mutateSpy.mockClear();
+    vi.restoreAllMocks();
+  });
+
+  it("badges a user-invocable-only Skill but not a model-visible one", () => {
+    skills = [
+      {
+        ...workspaceSkill,
+        id: "user-only",
+        name: "User Only Skill",
+        disableModelInvocation: true,
+      },
+      workspaceSkill,
+    ];
+
+    render(<SkillsList orgId="org1" workspaceId="ws1" />);
+
+    expect(screen.getAllByText("User-invocable only")).toHaveLength(1);
+    expect(screen.getByText("Workspace Skill")).toBeInTheDocument();
+  });
+});
+
 describe("SkillsList delete", () => {
   afterEach(() => {
     skills = [];

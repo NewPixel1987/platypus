@@ -247,7 +247,10 @@ export type ChatTurnQueries = {
     ids: string[],
     orgId: string,
     workspaceId: string,
-  ): Promise<Array<Pick<Skill, "name" | "description">>>;
+  ): Promise<{
+    skills: Array<Pick<Skill, "name" | "description">>;
+    permittedSkillIds: string[];
+  }>;
   getMcp(
     id: string,
     orgId: string,
@@ -336,18 +339,24 @@ export const drizzleChatTurnQueries: ChatTurnQueries = {
       workspaceId,
     });
 
+    const permittedSkillIds = visible.map(({ row }) => row.id);
+
     // A workspace-scoped Skill wins a name collision with an attached org-scoped
     // one, matching loadSkill's workspace-first resolution — so the advertised
     // list and the tool agree on which body the model loads, with no duplicate
     // entry in the system prompt.
     const workspaceSkills = visible.filter((s) => s.scope === "workspace");
     const seen = new Set(workspaceSkills.map(({ row }) => row.name));
-    return [
+    const skills = [
       ...workspaceSkills,
       ...visible.filter(
         (s) => s.scope === "organization" && !seen.has(s.row.name),
       ),
-    ].map(({ row }) => ({ name: row.name, description: row.description }));
+    ]
+      .filter(({ row }) => !row.disableModelInvocation)
+      .map(({ row }) => ({ name: row.name, description: row.description }));
+
+    return { skills, permittedSkillIds };
   },
 
   async getMcp(id, orgId, workspaceId) {
@@ -609,7 +618,7 @@ export const prepareChatTurn = async (
 
     const [
       session,
-      skills,
+      { skills, permittedSkillIds },
       { subAgents, unavailableSubAgents, subAgentTools },
       userContexts,
       memories,
@@ -693,8 +702,12 @@ export const prepareChatTurn = async (
 
     const systemPrompt = renderSystemPrompt(stable);
 
-    if (skills.length > 0) {
-      tools[LOAD_SKILL_TOOL_NAME] = createLoadSkillTool(orgId, workspaceId);
+    if (permittedSkillIds.length > 0) {
+      tools[LOAD_SKILL_TOOL_NAME] = createLoadSkillTool(
+        orgId,
+        workspaceId,
+        permittedSkillIds,
+      );
     }
 
     // Activity events only. Result normalization (#321) is no longer bolted on
@@ -943,8 +956,13 @@ const loadSkills = async (
   agent: AgentRow | undefined,
   orgId: string,
   workspaceId: string,
-): Promise<Array<Pick<Skill, "name" | "description">>> => {
-  if (!agent?.skillIds || agent.skillIds.length === 0) return [];
+): Promise<{
+  skills: Array<Pick<Skill, "name" | "description">>;
+  permittedSkillIds: string[];
+}> => {
+  if (!agent?.skillIds || agent.skillIds.length === 0) {
+    return { skills: [], permittedSkillIds: [] };
+  }
   return queries.getSkillsByIds(agent.skillIds, orgId, workspaceId);
 };
 

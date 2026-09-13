@@ -1006,6 +1006,12 @@ const LIMIT_CLAIMS: LimitClaim[] = [
     expected: stringField(skillSchema, "body"),
   },
   {
+    doc: "building-with-platypus/skills.mdx",
+    anchor: "**Argument hint** _(optional)_",
+    source: "packages/schemas/index.ts (skillSchema.argumentHint)",
+    expected: { max: stringField(skillSchema, "argumentHint").max },
+  },
+  {
     doc: "building-with-platypus/mcp.mdx",
     anchor: "**Name** — a label for this server",
     source: "packages/schemas/index.ts (mcpSchema.name)",

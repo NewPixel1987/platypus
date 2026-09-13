@@ -277,13 +277,21 @@ export const resolveScopedByName = async <T extends ScopedResourceType>(
   type: T,
   name: string,
   ctx: ScopeContext,
+  allowedIds?: string[],
 ): Promise<{ row: RowOf[T]; scope: Scope } | null> => {
   const { table } = REGISTRY[type];
 
+  const idFilter = allowedIds ? inArray(table.id, allowedIds) : undefined;
   const workspaceRows = await database
     .select()
     .from(table)
-    .where(and(eq(table.workspaceId, ctx.workspaceId), eq(table.name, name)))
+    .where(
+      and(
+        eq(table.workspaceId, ctx.workspaceId),
+        eq(table.name, name),
+        idFilter,
+      ),
+    )
     .limit(1);
   const workspaceRow = workspaceRows[0] as RowOf[T] | undefined;
   if (workspaceRow) return { row: workspaceRow, scope: "workspace" };
@@ -294,7 +302,7 @@ export const resolveScopedByName = async <T extends ScopedResourceType>(
   const orgRows = await database
     .select()
     .from(table)
-    .where(and(sharedWhere(table, ctx.orgId), eq(table.name, name)))
+    .where(and(sharedWhere(table, ctx.orgId), eq(table.name, name), idFilter))
     .limit(1);
   const orgRow = orgRows[0] as RowOf[T] | undefined;
   if (!orgRow) return null;

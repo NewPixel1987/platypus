@@ -375,6 +375,8 @@ export const skillBaseSchema = z.object({
     .regex(skillNameRegex, "Skill name must be kebab-case"),
   description: z.string().min(24).max(1024),
   body: z.string().min(48).max(50000),
+  disableModelInvocation: z.boolean().default(false),
+  argumentHint: z.string().max(120).nullable().optional(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -401,6 +403,8 @@ export const skillCreateSchema = skillBaseSchema
     name: true,
     description: true,
     body: true,
+    disableModelInvocation: true,
+    argumentHint: true,
   })
   .extend({
     agentIds: z.array(z.string()).optional(),
@@ -411,8 +415,10 @@ export const skillUpdateSchema = skillBaseSchema
     name: true,
     description: true,
     body: true,
+    argumentHint: true,
   })
   .extend({
+    disableModelInvocation: z.boolean().optional(),
     agentIds: z.array(z.string()).optional(),
   });
 

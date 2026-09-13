@@ -612,6 +612,11 @@ export const skill = pgTable(
     name: t.text("name").notNull(),
     description: t.text("description").notNull(),
     body: t.text("body").notNull(),
+    disableModelInvocation: t
+      .boolean("disable_model_invocation")
+      .notNull()
+      .default(false),
+    argumentHint: t.text("argument_hint"),
     createdAt: t.timestamp("created_at").notNull().defaultNow(),
     updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
   }),

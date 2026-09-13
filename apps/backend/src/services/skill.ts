@@ -43,7 +43,7 @@ export type SkillRow = typeof skillTable.$inferSelect;
 
 /** The fields a create carries — every field but the id and its scope. */
 export type SkillCreateFields = Omit<
-  z.infer<typeof skillCreateSchema>,
+  z.input<typeof skillCreateSchema>,
   "organizationId" | "workspaceId"
 >;
 

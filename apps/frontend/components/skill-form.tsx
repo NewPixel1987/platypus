@@ -31,7 +31,12 @@ import { useBackendUrl } from "@/app/client-context";
 import { useAuth } from "@/components/auth-provider";
 import { AgentAvatar } from "@/components/agent-avatar";
 
-const RETRACTABLE_FIELDS = ["name", "description", "body"] as const;
+const RETRACTABLE_FIELDS = [
+  "name",
+  "description",
+  "body",
+  "argumentHint",
+] as const;
 
 const SkillForm = ({
   classNames,
@@ -86,6 +91,8 @@ const SkillForm = ({
     name: "",
     description: "",
     body: "",
+    argumentHint: "",
+    disableModelInvocation: false,
   });
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
 
@@ -103,6 +110,8 @@ const SkillForm = ({
         name: skill.name,
         description: skill.description,
         body: skill.body,
+        argumentHint: skill.argumentHint ?? "",
+        disableModelInvocation: skill.disableModelInvocation,
       });
     }
   });
@@ -150,6 +159,8 @@ const SkillForm = ({
       name: formData.name,
       description: formData.description,
       body: formData.body,
+      argumentHint: formData.argumentHint || null,
+      disableModelInvocation: formData.disableModelInvocation,
       // Scope and agent associations only apply to the workspace surface.
       ...(workspaceId
         ? { workspaceId, agentIds: selectedAgentIds }
@@ -244,6 +255,44 @@ const SkillForm = ({
               maxLength={50000}
               error={validationErrors.body}
             />
+          </Field>
+          <FormTextField
+            label="Argument hint"
+            name="argumentHint"
+            value={formData.argumentHint}
+            onChange={toFieldChange("argumentHint")}
+            disabled={isSubmitting}
+            error={validationErrors.argumentHint}
+            description="Text shown after the command name when a person invokes this Skill."
+            placeholder="What should follow the command?"
+            maxLength={120}
+            trailing={
+              <p className="text-xs text-muted-foreground">
+                {formData.argumentHint.length}/120
+              </p>
+            }
+          />
+          <Field orientation="horizontal" className="items-start">
+            <Switch
+              id="disableModelInvocation"
+              checked={formData.disableModelInvocation}
+              onCheckedChange={(checked) =>
+                setFormData((previous) => ({
+                  ...previous,
+                  disableModelInvocation: checked,
+                }))
+              }
+              disabled={isSubmitting}
+            />
+            <div className="space-y-1">
+              <FieldLabel htmlFor="disableModelInvocation">
+                User-invocable only
+              </FieldLabel>
+              <FieldDescription>
+                Keep this Skill out of the model catalogue. People can still
+                invoke it directly.
+              </FieldDescription>
+            </div>
           </Field>
         </FieldGroup>
       </FieldSet>

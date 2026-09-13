@@ -24,6 +24,7 @@ export type ChatTurnQueriesFixtures = {
     organizationId?: string | null;
     name: string;
     description: string;
+    disableModelInvocation?: boolean;
   }>;
   mcps?: McpRow[];
   // Attachments of org-scoped Shared resources to workspaces (ADR-0007). An
@@ -111,22 +112,26 @@ export const createInMemoryChatTurnQueries = (
     },
 
     getSkillsByIds(ids, orgId, workspaceId) {
-      if (ids.length === 0) return Promise.resolve([]);
-      return Promise.resolve(
-        (fx.skills ?? [])
-          .filter((s) => {
-            if (!ids.includes(s.id)) return false;
-            // Workspace-scoped Skill in this workspace.
-            if (s.workspaceId === workspaceId) return true;
-            // Org-scoped (Shared) Skill resolves only where attached (ADR-0007).
-            return (
-              s.organizationId === orgId &&
-              !s.workspaceId &&
-              isAttached("skill", s.id, workspaceId)
-            );
-          })
+      if (ids.length === 0) {
+        return Promise.resolve({ skills: [], permittedSkillIds: [] });
+      }
+      const visible = (fx.skills ?? []).filter((s) => {
+        if (!ids.includes(s.id)) return false;
+        // Workspace-scoped Skill in this workspace.
+        if (s.workspaceId === workspaceId) return true;
+        // Org-scoped (Shared) Skill resolves only where attached (ADR-0007).
+        return (
+          s.organizationId === orgId &&
+          !s.workspaceId &&
+          isAttached("skill", s.id, workspaceId)
+        );
+      });
+      return Promise.resolve({
+        skills: visible
+          .filter((s) => !s.disableModelInvocation)
           .map((s) => ({ name: s.name, description: s.description })),
-      );
+        permittedSkillIds: visible.map((s) => s.id),
+      });
     },
 
     getMcp(id, orgId, workspaceId) {

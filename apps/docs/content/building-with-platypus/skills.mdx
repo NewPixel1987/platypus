@@ -34,13 +34,18 @@ From your Workspace, go to the **Skills** section and click **Create skill**.
   step-by-step procedures, examples, formatting rules, edge cases. The 48-character
   floor is enforced on save, so a one-line placeholder body is rejected — write
   the real instructions or don't create the Skill yet.
+- **Argument hint** _(optional)_ — up to **120 characters** describing what text
+  should follow the command when a person invokes this Skill.
+- **User-invocable only** — keep this Skill out of the model's catalogue while
+  leaving it available for direct invocation by a person.
 
 </Steps>
 
 <Callout type="info">
   Write the **description** for triage and the **body** for execution. The
   description is always in context (so keep it tight); the body is fetched only
-  when needed (so it can be long).
+  when needed (so it can be long). Use the **argument hint** to tell people what
+  to type after the command name.
 </Callout>
 
 ## Attach a Skill to an Agent
@@ -68,6 +73,11 @@ along with guidance to **use the `loadSkill` tool** when a request matches one.
 The model then calls `loadSkill` with the Skill's name, and the tool returns that
 Skill's full **body** — which the model reads before responding. Nothing in the
 body costs context until the moment it's actually needed.
+
+A Skill marked **User-invocable only** is left out of this catalogue entirely:
+the model is never told its name, and cannot load it by name. The Skill stays
+available for direct invocation by a person; the flag narrows the model's view
+only, never the user's.
 
 ## Workspace vs Shared scope
 

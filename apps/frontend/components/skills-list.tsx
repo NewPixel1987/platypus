@@ -44,6 +44,7 @@ import {
   Trash2,
   TriangleAlert,
   Unlink,
+  UserRound,
 } from "lucide-react";
 import { type Skill, type Agent } from "@platypus/schemas";
 import useSWR from "swr";
@@ -69,6 +70,20 @@ import { useDetachDialog } from "@/hooks/use-detach-dialog";
 // locked cards, and the Organization settings surface (no workspaceId) where it
 // manages org-scoped Skills directly (ADR-0007).
 type SkillWithScope = Skill & { scope?: "organization" | "workspace" };
+
+const UserInvocableBadge = ({ skill }: { skill: SkillWithScope }) => {
+  if (!skill.disableModelInvocation) return null;
+
+  return (
+    <span
+      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary text-[10px] font-medium text-secondary-foreground uppercase tracking-wider"
+      title="This skill is only invoked when a user triggers it"
+    >
+      <UserRound className="size-3" />
+      User-invocable only
+    </span>
+  );
+};
 
 // The agent-association indicator shown on workspace skill cards: a Bot icon
 // with an "N agent(s)" count whose tooltip lists the agents, or a warning when
@@ -312,6 +327,7 @@ export const SkillsList = ({
                   <ItemContent>
                     <div className="flex items-center gap-2">
                       <ItemTitle>{skill.name}</ItemTitle>
+                      <UserInvocableBadge skill={skill} />
                       <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary text-[10px] font-medium text-secondary-foreground uppercase tracking-wider">
                         <Building className="size-3" />
                         Organization
@@ -341,7 +357,10 @@ export const SkillsList = ({
               >
                 <Link href={`${editBasePath}/${skill.id}`}>
                   <ItemContent>
-                    <ItemTitle>{skill.name}</ItemTitle>
+                    <div className="flex items-center gap-2">
+                      <ItemTitle>{skill.name}</ItemTitle>
+                      <UserInvocableBadge skill={skill} />
+                    </div>
                     <ItemDescription className="text-xs line-clamp-2">
                       {skill.description}
                     </ItemDescription>

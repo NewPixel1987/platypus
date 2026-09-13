@@ -550,6 +550,34 @@ describe("chat-execution", () => {
       expect(detachedTurn.stream.tools).not.toHaveProperty("loadSkill");
     });
 
+    it("hides user-invocable-only Skills from the catalogue but keeps loadSkill registered", async () => {
+      const agentWithSkill = { ...baseAgent, skillIds: ["human-only"] };
+      const turn = await prepareChatTurn(
+        {
+          ...baseInput,
+          request: { agentId: agentWithSkill.id },
+        },
+        createInMemoryChatTurnQueries({
+          workspaces: [baseWorkspace],
+          agents: [agentWithSkill],
+          providers: [baseProvider],
+          skills: [
+            {
+              id: "human-only",
+              workspaceId: "ws-1",
+              name: "human-only",
+              description: "Only a person should invoke this skill",
+              disableModelInvocation: true,
+            },
+          ],
+        }),
+      );
+
+      expect(turn.stream.system).not.toContain("human-only");
+      expect(turn.stream.tools).toHaveProperty("loadSkill");
+      await turn.dispose();
+    });
+
     it("runs a Shared (org-scoped) Agent invoked from a borrowing Workspace where attached", async () => {
       const borrowingWorkspace = { ...baseWorkspace, id: "ws-2" };
       const orgProvider = {
