@@ -1,103 +1,41 @@
 import { describe, it, expect, vi } from "vitest";
 
 /**
- * `eq`/`and` are replaced with introspectable markers so the in-memory fake
- * database below can interpret a real Drizzle `where` condition without
- * parsing SQL — the same technique `db/seed.test.ts` uses. This is what makes
- * these tests different from the rest of the suite, which stubs `eq`/`and` as
- * no-ops via `test-utils.ts`: here, a query that dropped a column from its
- * `and(...)` (e.g. matching on `userId` alone) filters the fixture rows
- * incorrectly and the test fails, instead of the condition being invisible.
+ * `eq`/`and` are replaced with the shared introspectable markers so the
+ * in-memory fake executor interprets a real Drizzle `where` condition rather
+ * than ignoring it. This is what makes these tests different from the rest of
+ * the suite, which stubs `eq`/`and` as no-ops via `test-utils.ts`: here, a
+ * query that dropped a column from its `and(...)` (e.g. matching on `userId`
+ * alone) filters the fixture rows incorrectly and the test fails, instead of
+ * the condition being invisible.
+ *
+ * The executor is `fake-db.ts`, shared with `db/seed.test.ts` and — through
+ * `seedDb()` in `test-utils.ts` — with the route tests.
  */
 vi.mock("drizzle-orm", async () => {
   const actual =
     await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm");
-  return {
-    ...actual,
-    eq: (column: { name: string }, value: unknown) => ({
-      column: column.name,
-      value,
-    }),
-    and: (...conditions: unknown[]) => ({
-      and: conditions.filter(Boolean),
-    }),
-  };
+  const { markerOperators } = await import("../fake-db.ts");
+  return { ...actual, ...markerOperators() };
 });
 
-import { organizationMember, workspace } from "../db/schema.ts";
+import { createFakeDb, type Row } from "../fake-db.ts";
 import {
   resolveOrgMembership,
   resolveWorkspaceAccess,
   type Database,
 } from "./authorization.ts";
 
-type Row = Record<string, unknown>;
-type EqCondition = { column: string; value: unknown };
-type AndCondition = { and: Condition[] };
-type Condition = EqCondition | AndCondition | undefined;
-
-/** Snake-cased column names from `eq` map back onto camel-cased row keys. */
-const toCamel = (name: string) =>
-  name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-
-const isAnd = (condition: Condition): condition is AndCondition =>
-  condition != null && "and" in condition;
-
-const matches = (row: Row, condition: Condition): boolean => {
-  if (!condition) return true;
-  if (isAnd(condition)) {
-    return condition.and.every((c) => matches(row, c));
-  }
-  return (
-    row[condition.column] === condition.value ||
-    row[toCamel(condition.column)] === condition.value
-  );
-};
-
 /**
- * A minimal in-memory stand-in for the Drizzle handle, covering only
- * `select().from(table).where(condition).limit(n)` — everything
- * {@link resolveOrgMembership} and {@link resolveWorkspaceAccess} issue.
+ * The Drizzle stand-in these tests query: the shared fake executor seeded with
+ * the two tables {@link resolveOrgMembership} and {@link resolveWorkspaceAccess}
+ * read, under the Postgres names it keys rows by.
  */
-const fakeDb = (tables: { organizationMember: Row[]; workspace: Row[] }) => {
-  const rowsFor = (table: unknown): Row[] => {
-    if (table === organizationMember) return tables.organizationMember;
-    if (table === workspace) return tables.workspace;
-    throw new Error("Fake db has no such table");
-  };
-
-  return {
-    select() {
-      let table: unknown;
-      let condition: Condition;
-      let take = Infinity;
-      const builder = {
-        from(t: unknown) {
-          table = t;
-          return builder;
-        },
-        where(c: Condition) {
-          condition = c;
-          return builder;
-        },
-        limit(n: number) {
-          take = n;
-          return builder;
-        },
-        then(
-          onFulfilled: (rows: Row[]) => unknown,
-          onRejected?: () => unknown,
-        ) {
-          const rows = rowsFor(table)
-            .filter((row) => matches(row, condition))
-            .slice(0, take);
-          return Promise.resolve(rows).then(onFulfilled, onRejected);
-        },
-      };
-      return builder;
-    },
-  } as unknown as Database;
-};
+const fakeDb = (tables: { organizationMember: Row[]; workspace: Row[] }) =>
+  createFakeDb({
+    organization_member: tables.organizationMember,
+    workspace: tables.workspace,
+  }).handle as Database;
 
 describe("resolveOrgMembership", () => {
   it("grants a super admin without touching the database, even with no orgId", async () => {

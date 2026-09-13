@@ -1,26 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * `eq` and `count` are replaced with introspectable markers so the in-memory
- * fake database below can interpret a Drizzle condition without parsing SQL.
- * Everything else (`pgTable` and friends, used by the schema module) comes from
- * the real package.
+ * `eq` and `count` are replaced with the shared introspectable markers so the
+ * in-memory fake executor can interpret a Drizzle condition without parsing
+ * SQL. Everything else (`pgTable` and friends, used by the schema module) comes
+ * from the real package.
  */
 vi.mock("drizzle-orm", async () => {
   const actual =
     await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm");
-  return {
-    ...actual,
-    eq: (column: { name: string }, value: unknown) => ({
-      column: column.name,
-      value,
-    }),
-    count: () => ({ isCount: true }),
-  };
+  const { markerOperators } = await import("../fake-db.ts");
+  return { ...actual, ...markerOperators() };
 });
 
-// Reaches the real implementation through the `...actual` spread above.
-import { getTableName } from "drizzle-orm";
+import { createFakeDb as createSharedFakeDb, type Store } from "../fake-db.ts";
 import {
   seedFirstBoot,
   NonRetryableSeedError,
@@ -29,164 +22,29 @@ import {
 } from "./seed.ts";
 import { logger } from "../logger.ts";
 
-type Row = Record<string, unknown>;
-
-/** The four tables the seed touches, keyed by their Postgres table name. */
-type Store = {
-  organization: Row[];
-  user: Row[];
-  organization_member: Row[];
-  workspace: Row[];
-};
-
-/** Snake-cased column names from `eq` map back onto camel-cased row keys. */
-const toCamel = (name: string) =>
-  name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-
-type Condition = { column: string; value: unknown } | undefined;
-
-const matches = (row: Row, condition: Condition) =>
-  !condition ||
-  row[condition.column] === condition.value ||
-  row[toCamel(condition.column)] === condition.value;
-
 /**
- * A minimal in-memory stand-in for the Drizzle handle covering only what the
- * seed uses: counting, lookups by column, inserts, updates, deletes and — the
- * reason this exists rather than the chainable mock in `test-utils` — a
- * `transaction` that actually rolls back. Prior art in this repo mocks queries
- * or mirrors logic in plain JS, neither of which can express "after a failed
- * boot the database is back where it started", which is the assertion issue
- * #369 turns on.
+ * The shared in-memory fake executor (`fake-db.ts`), seeded with the four
+ * tables the seed touches and told about the one constraint these tests turn
+ * on: `user.email` is unique in the real schema, so a leftover User makes a
+ * second sign-up fail the way Postgres would.
  *
- * `transaction` hands the callback a handle bound to a *staging copy* that is
- * only merged back on success, mirroring the property that matters in
- * production: writes issued against the outer handle inside the callback go to
- * a different connection and survive the rollback. A refactor that used `db`
- * where it means `tx` fails these tests rather than passing quietly.
+ * The executor's `transaction` really rolls back — the callback gets a handle
+ * bound to a staging copy merged back only on success — which is the assertion
+ * issue #369 turns on: after a failed boot the database is back where it
+ * started. Code that used `db` where it meant `tx` fails these tests rather
+ * than passing quietly. `onInsert` is the seam these tests inject a mid-write
+ * failure through.
  */
-const createFakeDb = (options: { onInsert?: (table: string) => void } = {}) => {
-  const committed: Store = {
-    organization: [],
-    user: [],
-    organization_member: [],
-    workspace: [],
-  };
-
-  const nameOf = (table: unknown) =>
-    getTableName(table as Parameters<typeof getTableName>[0]);
-
-  const makeHandle = (store: Store) => {
-    const rowsFor = (table: unknown): Row[] => {
-      const name = nameOf(table);
-      const rows = store[name as keyof Store];
-      if (!rows) throw new Error(`Fake db has no table "${name}"`);
-      return rows;
-    };
-
-    return {
-      select(selection?: Record<string, unknown>) {
-        let table: unknown;
-        let condition: Condition;
-        let take = Infinity;
-        const builder = {
-          from(t: unknown) {
-            table = t;
-            return builder;
-          },
-          where(c: Condition) {
-            condition = c;
-            return builder;
-          },
-          limit(n: number) {
-            take = n;
-            return builder;
-          },
-          then(
-            onFulfilled: (rows: Row[]) => unknown,
-            onRejected?: () => unknown,
-          ) {
-            const rows = rowsFor(table)
-              .filter((row) => matches(row, condition))
-              .slice(0, take);
-            const isCount = Object.values(selection ?? {}).some(
-              (value) => (value as { isCount?: boolean })?.isCount,
-            );
-            const result = isCount
-              ? [
-                  Object.fromEntries(
-                    Object.keys(selection ?? {}).map((key) => [
-                      key,
-                      rows.length,
-                    ]),
-                  ),
-                ]
-              : rows.map((row) => ({ ...row }));
-            return Promise.resolve(result).then(onFulfilled, onRejected);
-          },
-        };
-        return builder;
-      },
-      insert(table: unknown) {
-        return {
-          values(values: Row) {
-            const name = nameOf(table);
-            options.onInsert?.(name);
-            // The real `user.email` is unique; model it so a leftover User
-            // makes a second sign-up fail the way Postgres would.
-            if (
-              name === "user" &&
-              store.user.some((row) => row.email === values.email)
-            ) {
-              throw new Error("duplicate key value violates unique constraint");
-            }
-            rowsFor(table).push({ ...values });
-            return Promise.resolve();
-          },
-        };
-      },
-      update(table: unknown) {
-        let patch: Row = {};
-        const builder = {
-          set(values: Row) {
-            patch = values;
-            return builder;
-          },
-          where(condition: Condition) {
-            for (const row of rowsFor(table)) {
-              if (matches(row, condition)) Object.assign(row, patch);
-            }
-            return Promise.resolve();
-          },
-        };
-        return builder;
-      },
-      delete(table: unknown) {
-        return {
-          where(condition: Condition) {
-            const rows = rowsFor(table);
-            const kept = rows.filter((row) => !matches(row, condition));
-            rows.length = 0;
-            rows.push(...kept);
-            return Promise.resolve();
-          },
-        };
-      },
-      async transaction<T>(callback: (tx: unknown) => Promise<T>): Promise<T> {
-        const staged = structuredClone(store);
-        const result = await callback(makeHandle(staged));
-        for (const [name, rows] of Object.entries(staged)) {
-          const target = store[name as keyof Store];
-          target.length = 0;
-          target.push(...rows);
-        }
-        return result;
-      },
-    };
-  };
-
-  return { handle: makeHandle(committed), tables: committed };
-};
+const createFakeDb = (
+  options: { onInsert?: (table: string) => void } = {},
+): { handle: unknown; tables: Store } =>
+  createSharedFakeDb(
+    { organization: [], user: [], organization_member: [], workspace: [] },
+    {
+      onInsert: options.onInsert,
+      unique: { user: [{ name: "user_email_key", columns: ["email"] }] },
+    },
+  );
 
 const asSeedDb = (fake: { handle: unknown }) => fake.handle as SeedDatabase;
 

@@ -1,4 +1,20 @@
 import { vi, type Mock } from "vitest";
+import {
+  createFakeDb,
+  type FakeDb,
+  type FakeDbOptions,
+  type Store,
+} from "./fake-db.ts";
+
+export {
+  createFakeDb,
+  markerOperators,
+  orderOperators,
+  matches,
+  type FakeDb,
+  type Row,
+  type Store,
+} from "./fake-db.ts";
 import type {
   PluginConfigContext,
   PluginLogger,
@@ -179,8 +195,41 @@ export function createMockDb(): MockDb {
   return mock;
 }
 
-const { mockDb, mockAuth } = vi.hoisted(() => {
+const { mockDb, mockAuth, dbHandle, fakeRef } = vi.hoisted(() => {
   const mock = createMockDb();
+
+  /**
+   * Which handle the mocked `db` module currently stands for: the chainable
+   * mock by default, a {@link seedDb} fake while one is installed.
+   */
+  const ref: { current: { handle: unknown } | null } = { current: null };
+
+  /**
+   * The object every module's `import { db }` binds to. It forwards each
+   * property access to whichever handle is installed *at call time*, so a test
+   * can swap in a seeded fake after the routes have already been imported —
+   * and every test file that stubs the chainable mock keeps reaching it.
+   */
+  const handle = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        const current: object = ref.current
+          ? (ref.current.handle as object)
+          : mock;
+        const value = Reflect.get(current, property) as unknown;
+        return typeof value === "function"
+          ? (value as (...args: unknown[]) => unknown).bind(current)
+          : value;
+      },
+      has(_target, property) {
+        const current: object = ref.current
+          ? (ref.current.handle as object)
+          : mock;
+        return Reflect.has(current, property);
+      },
+    },
+  );
 
   // Auth mock
   const authMock = {
@@ -195,47 +244,87 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
     },
   };
 
-  return { mockDb: mock, mockAuth: authMock };
+  return { mockDb: mock, mockAuth: authMock, dbHandle: handle, fakeRef: ref };
 });
 
 export { mockDb, mockAuth };
 
-/** Resets the shared `mockDb` to fresh chainable mocks, clearing stubbed state. */
+/**
+ * Seeds an in-memory fake query executor and installs it as the `db` every
+ * module imports, for this test. Unlike the chainable `mockDb` — whose
+ * `.where()` throws its argument away — the fake reads the predicate a query
+ * builds, so a lookup that dropped its Workspace or Organization column finds
+ * the wrong fixture row and the test fails.
+ *
+ * Rows are keyed by Postgres table name (`seedDb({ workspace: [...] })`), and
+ * the returned handle's `tables` are live: assert on them to see what a write
+ * did. Call {@link resetMockDb} (usually in `beforeEach`) to uninstall it and
+ * return to the chainable mock.
+ */
+export const seedDb = (
+  rows: Store = {},
+  options: FakeDbOptions = {},
+): FakeDb => {
+  const fake = createFakeDb(rows, options);
+  fakeRef.current = fake;
+  return fake;
+};
+
+/**
+ * Resets the shared `mockDb` to fresh chainable mocks, clearing stubbed state —
+ * and uninstalls any {@link seedDb} fake, so a file mixing the two starts each
+ * test on the chainable mock.
+ */
 export const resetMockDb = () => {
+  fakeRef.current = null;
   installBuilderMethods(mockDb);
 };
 
 // Mock the database module
 vi.mock("./index.ts", () => ({
-  db: mockDb,
+  db: dbHandle,
 }));
 
-// Mock drizzle-orm
+/**
+ * Mock drizzle-orm.
+ *
+ * Each operator is a spy — tests assert on what a query asked for — wrapping
+ * the introspectable marker from `fake-db.ts`, so the condition a route builds
+ * survives to `.where()` and a {@link seedDb} fake can evaluate it. The
+ * chainable `mockDb` still ignores the argument, so a test file that stubs
+ * queries positionally behaves exactly as before.
+ */
 vi.mock("drizzle-orm", async () => {
   const actual = await vi.importActual("drizzle-orm");
+  // Dynamic so this factory, which runs before the module body, does not depend
+  // on test-utils' own imports having been evaluated. `fake-db.ts` imports
+  // nothing from `drizzle-orm`, so there is no cycle back into this mock.
+  const { markerOperators, orderOperators, sqlMarker } =
+    await import("./fake-db.ts");
+  const markers = markerOperators();
+  const order = orderOperators();
   const sqlMock = Object.assign(
-    vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => ({
-      getSQL: () => ({ query: strings.join("?") }),
-      mapWith: vi.fn(),
-    })),
+    vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
+      sqlMarker(strings, values),
+    ),
     {
       raw: vi.fn((query: string) => ({ getSQL: () => ({ query }) })),
     },
   );
   return {
     ...actual,
-    eq: vi.fn(),
-    and: vi.fn((...args: unknown[]) => args.filter(Boolean)), // Return non-null args
-    or: vi.fn(),
-    inArray: vi.fn(),
-    notInArray: vi.fn(),
-    gt: vi.fn(),
-    lte: vi.fn(),
-    asc: vi.fn(),
-    count: vi.fn(),
+    eq: vi.fn(markers.eq),
+    and: vi.fn(markers.and),
+    or: vi.fn(markers.or),
+    inArray: vi.fn(markers.inArray),
+    notInArray: vi.fn(markers.notInArray),
+    gt: vi.fn(markers.gt),
+    lte: vi.fn(markers.lte),
+    asc: vi.fn(order.asc),
+    count: vi.fn(markers.count),
     max: vi.fn(),
-    desc: vi.fn(),
-    isNull: vi.fn(),
+    desc: vi.fn(order.desc),
+    isNull: vi.fn(markers.isNull),
     sql: sqlMock,
   };
 });
