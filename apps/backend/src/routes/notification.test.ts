@@ -190,7 +190,8 @@ describe("Notification Routes", () => {
       mockDb.where
         .mockReturnValueOnce(mockDb) // requireOrgAccess
         .mockReturnValueOnce(mockDb) // requireWorkspaceAccess
-        .mockResolvedValueOnce([{ id: "notif-1" }, { id: "notif-2" }]); // handler unread query
+        .mockResolvedValueOnce([{ id: "notif-1" }, { id: "notif-2" }]) // handler unread query
+        .mockResolvedValueOnce([{ id: "notif-1" }, { id: "notif-2" }]); // service containment query
 
       // Insert read records
       mockDb.values.mockResolvedValueOnce({});

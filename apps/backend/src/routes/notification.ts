@@ -1,22 +1,21 @@
 import { Hono } from "hono";
-import { nanoid } from "nanoid";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../index.ts";
-import {
-  notification as notificationTable,
-  notificationRead as notificationReadTable,
-  agent as agentTable,
-} from "../db/schema.ts";
 import { requireAuth } from "../middleware/authentication.ts";
 import {
   requireOrgAccess,
   requireWorkspaceAccess,
   workspaceScopeOf,
 } from "../middleware/authorization.ts";
-import { requireOwned, deleteOwned } from "../services/workspace-resource.ts";
+import {
+  markRead,
+  markAllRead,
+  deleteNotification,
+  listWorkspaceNotifications,
+  unreadNotificationCount,
+  unreadNotificationIds,
+} from "../services/notification.ts";
 import { NotFoundError } from "../errors.ts";
 import type { Variables } from "../server.ts";
-import { dispatchEvent } from "../services/event-dispatch.ts";
 import { avatarKeyToUrl } from "../utils/avatar-url.ts";
 import { getOrigin } from "../utils/get-origin.ts";
 
@@ -38,32 +37,13 @@ notification.get(
     const offset = Math.max(parseInt(c.req.query("offset") || "0", 10) || 0, 0);
     const baseUrl = getOrigin(c);
 
-    const results = await db
-      .select({
-        id: notificationTable.id,
-        workspaceId: notificationTable.workspaceId,
-        agentId: notificationTable.agentId,
-        title: notificationTable.title,
-        body: notificationTable.body,
-        createdAt: notificationTable.createdAt,
-        updatedAt: notificationTable.updatedAt,
-        agentName: agentTable.name,
-        agentAvatarKey: agentTable.avatarKey,
-        readAt: notificationReadTable.readAt,
-      })
-      .from(notificationTable)
-      .innerJoin(agentTable, eq(notificationTable.agentId, agentTable.id))
-      .leftJoin(
-        notificationReadTable,
-        and(
-          eq(notificationReadTable.notificationId, notificationTable.id),
-          eq(notificationReadTable.userId, user.id),
-        ),
-      )
-      .where(eq(notificationTable.workspaceId, workspaceId))
-      .orderBy(desc(notificationTable.createdAt))
-      .limit(limit)
-      .offset(offset);
+    const results = await listWorkspaceNotifications(
+      db,
+      workspaceId,
+      user.id,
+      limit,
+      offset,
+    );
 
     return c.json({
       results: results.map((r) => ({
@@ -92,24 +72,7 @@ notification.get(
     const { workspaceId } = workspaceScopeOf(c);
     const user = c.get("user")!;
 
-    const result = await db
-      .select({
-        count: sql<number>`count(*)::int`,
-      })
-      .from(notificationTable)
-      .leftJoin(
-        notificationReadTable,
-        and(
-          eq(notificationReadTable.notificationId, notificationTable.id),
-          eq(notificationReadTable.userId, user.id),
-        ),
-      )
-      .where(
-        and(
-          eq(notificationTable.workspaceId, workspaceId),
-          isNull(notificationReadTable.id),
-        ),
-      );
+    const result = await unreadNotificationCount(db, workspaceId, user.id);
 
     return c.json({ count: result[0]?.count ?? 0 });
   },
@@ -126,22 +89,11 @@ notification.post(
     const user = c.get("user")!;
     const { orgId, workspaceId } = workspaceScopeOf(c);
 
-    // Verify notification exists in this workspace
-    await requireOwned(db, "notification", notificationId, workspaceId);
-
-    await db
-      .insert(notificationReadTable)
-      .values({
-        id: nanoid(),
-        notificationId,
-        userId: user.id,
-      })
-      .onConflictDoNothing();
-
-    dispatchEvent(orgId, workspaceId, "notification.read", {
-      notificationId,
-      userId: user.id,
-    });
+    if (
+      !(await markRead(db, { orgId, workspaceId }, notificationId, user.id))
+    ) {
+      throw new NotFoundError("Notification not found");
+    }
 
     return c.json({ success: true });
   },
@@ -158,37 +110,15 @@ notification.post(
     const user = c.get("user")!;
 
     // Get all unread notification IDs
-    const unread = await db
-      .select({ id: notificationTable.id })
-      .from(notificationTable)
-      .leftJoin(
-        notificationReadTable,
-        and(
-          eq(notificationReadTable.notificationId, notificationTable.id),
-          eq(notificationReadTable.userId, user.id),
-        ),
-      )
-      .where(
-        and(
-          eq(notificationTable.workspaceId, workspaceId),
-          isNull(notificationReadTable.id),
-        ),
-      );
+    const unread = await unreadNotificationIds(db, workspaceId, user.id);
 
     if (unread.length > 0) {
-      await db.insert(notificationReadTable).values(
-        unread.map((n) => ({
-          id: nanoid(),
-          notificationId: n.id,
-          userId: user.id,
-        })),
+      await markAllRead(
+        db,
+        { orgId, workspaceId },
+        unread.map((n) => n.id),
+        user.id,
       );
-
-      dispatchEvent(orgId, workspaceId, "notification.read", {
-        notificationIds: unread.map((n) => n.id),
-        userId: user.id,
-        bulk: true,
-      });
     }
 
     return c.json({ success: true });
@@ -205,20 +135,15 @@ notification.delete(
     const notificationId = c.req.param("notificationId");
     const { orgId, workspaceId } = workspaceScopeOf(c);
 
-    const deleted = await deleteOwned(
+    const deleted = await deleteNotification(
       db,
-      "notification",
+      { orgId, workspaceId },
       notificationId,
-      workspaceId,
     );
 
     if (!deleted) {
       throw new NotFoundError("Notification not found");
     }
-
-    dispatchEvent(orgId, workspaceId, "notification.dismissed", {
-      notificationId,
-    });
 
     return c.json({ message: "Notification deleted" });
   },

@@ -72,6 +72,17 @@ describe("createNotificationTools", () => {
   });
 
   describe("updateNotification", () => {
+    it("refuses a notification from another workspace or agent", async () => {
+      mockDb.returning.mockResolvedValueOnce([]);
+
+      expect(
+        await tools.updateNotification.execute!(
+          { notificationId: "other-workspace", body: "Updated" },
+          ctx,
+        ),
+      ).toEqual({ error: "Notification not found" });
+    });
+
     it("returns error when notification not found", async () => {
       mockDb.limit.mockResolvedValue([]);
 

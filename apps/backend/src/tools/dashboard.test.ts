@@ -38,6 +38,14 @@ describe("createDashboardTools", () => {
   });
 
   describe("listWidgets", () => {
+    it("refuses a dashboard from another workspace", async () => {
+      mockDb.limit.mockResolvedValueOnce([]);
+
+      expect(await tools.listWidgets.execute!({ dashboardId }, ctx)).toEqual({
+        error: "Dashboard not found",
+      });
+    });
+
     it("returns error when dashboard not found", async () => {
       mockDb.limit.mockResolvedValueOnce([]);
 
@@ -61,13 +69,27 @@ describe("createDashboardTools", () => {
   });
 
   describe("getWidget", () => {
+    it("refuses a widget outside the requested dashboard", async () => {
+      mockDb.limit.mockResolvedValueOnce([{ id: dashboardId, workspaceId }]);
+      mockDb.limit.mockResolvedValueOnce([]);
+
+      expect(
+        await tools.getWidget.execute!({ dashboardId, widgetId }, ctx),
+      ).toEqual({
+        error: "Widget not found",
+      });
+    });
+
     it("returns embed widget data without exposing it to agent writes", async () => {
       mockDb.limit.mockResolvedValueOnce([{ id: dashboardId, workspaceId }]);
       const widget = {
         id: widgetId,
         dashboardId,
+        title: "Status",
         type: "embed",
         data: { url: "https://status.example.com/embed" },
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       };
       mockDb.limit.mockResolvedValueOnce([widget]);
 
