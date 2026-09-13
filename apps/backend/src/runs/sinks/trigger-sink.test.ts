@@ -1,7 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mockDb, resetMockDb } from "../../test-utils.ts";
 import { TriggerSink } from "./trigger-sink.ts";
+import { RunEventRecorder } from "../run-events.ts";
+import {
+  triggerRun as triggerRunTable,
+  triggerRunEvent as triggerRunEventTable,
+} from "../../db/schema.ts";
 import type { ResolvedRunPlan } from "../types.ts";
+
+/** Every `.set()` payload, paired with the table its `.update()` targeted. */
+const updates = () =>
+  mockDb.update.mock.calls.map((call, i) => ({
+    table: call[0],
+    set: mockDb.set.mock.calls[i]?.[0] as Record<string, unknown>,
+  }));
+
+/** Every `.values()` payload, paired with the table its `.insert()` targeted. */
+const inserts = () =>
+  mockDb.insert.mock.calls.map((call, i) => ({
+    table: call[0],
+    values: mockDb.values.mock.calls[i]?.[0],
+  }));
+
+const eventRows = () =>
+  inserts()
+    .filter((i) => i.table === triggerRunEventTable)
+    .map((i) => i.values as Array<Record<string, unknown>>);
 
 const plan: ResolvedRunPlan = {
   resolved: {
@@ -288,9 +312,9 @@ describe("TriggerSink", () => {
       expect(setArg.completedAt).toBeInstanceOf(Date);
     });
 
-    it("treats cancelled runs as failed in the persistence schema", async () => {
-      // The triggerRun schema has only success | failed | running | pending,
-      // so cancellation is recorded as failed for now. PR #3 may revisit.
+    // #647: a run cancelled at 40 seconds used to land as a failed run with no
+    // error, indistinguishable from a crash on the detail page.
+    it("records a cancelled run as 'cancelled', not 'failed'", async () => {
       const sink = new TriggerSink({ triggerId: "trigger-1" });
 
       await sink.onFinish({
@@ -301,7 +325,39 @@ describe("TriggerSink", () => {
       });
 
       const setArg = mockDb.set.mock.calls[0][0] as Record<string, unknown>;
-      expect(setArg.status).toBe("failed");
+      expect(setArg.status).toBe("cancelled");
+      expect(setArg.errorMessage).toBeNull();
+    });
+
+    it("persists the final assistant text on the run", async () => {
+      const sink = new TriggerSink({ triggerId: "trigger-1" });
+
+      await sink.onFinish({
+        runId: "run-1",
+        status: "succeeded",
+        messages: [],
+        stats: {},
+        finalText: "Three cards moved to Done.",
+      });
+
+      const setArg = mockDb.set.mock.calls[0][0] as Record<string, unknown>;
+      expect(setArg.finalText).toBe("Three cards moved to Done.");
+      expect(setArg.eventsTruncated).toBe(false);
+    });
+
+    it("stores no final text for a run that never produced one", async () => {
+      const sink = new TriggerSink({ triggerId: "trigger-1" });
+
+      await sink.onFinish({
+        runId: "run-1",
+        status: "failed",
+        messages: [],
+        stats: {},
+        error: new Error("Model exploded"),
+      });
+
+      const setArg = mockDb.set.mock.calls[0][0] as Record<string, unknown>;
+      expect(setArg.finalText).toBeNull();
     });
 
     it("only writes stats when steps are present (succeeded with no stats yields null)", async () => {
@@ -405,5 +461,159 @@ describe("TriggerSink", () => {
       const setArg = mockDb.set.mock.calls[0][0] as Record<string, unknown>;
       expect(setArg.stats).not.toHaveProperty("stoppedAtStepLimit");
     });
+  });
+});
+
+/**
+ * The Run timeline's durable half (#647). The recorder decides an event's
+ * shape; the sink decides when rows land — batched on the flush interval,
+ * inserted once and patched after — and that no terminal run leaves an event
+ * open.
+ */
+describe("TriggerSink run events", () => {
+  beforeEach(() => {
+    resetMockDb();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const startWithEvents = async (flushIntervalMs = 100) => {
+    const sink = new TriggerSink({ triggerId: "trigger-1", flushIntervalMs });
+    const events = new RunEventRecorder({ runId: "run-1" });
+    await sink.onStart({ runId: "run-1", messages: [], events });
+    return { sink, events };
+  };
+
+  it("writes the events recorded since the last flush as one multi-row insert", async () => {
+    const { events } = await startWithEvents();
+
+    const a = events.open(null, { type: "tool-call", toolName: "search" });
+    events.open(null, { type: "text" });
+    events.close(a!, { status: "completed" });
+
+    expect(eventRows()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(eventRows()).toHaveLength(1);
+    const [batch] = eventRows();
+    expect(batch.map((row) => [row.type, row.status])).toEqual([
+      ["tool-call", "completed"],
+      ["text", "running"],
+    ]);
+    expect(batch[0]).toMatchObject({
+      runId: "run-1",
+      parentEventId: null,
+      seq: 0,
+      toolName: "search",
+    });
+    expect(typeof batch[0].startedAt).toBe("number");
+  });
+
+  it("patches an already-written event when it later closes, without re-inserting it", async () => {
+    const { events } = await startWithEvents();
+    const id = events.open(null, { type: "text" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(eventRows()).toHaveLength(1);
+
+    events.close(id!, { status: "error", error: "boom" });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(eventRows()).toHaveLength(1);
+    const patch = updates().find((u) => u.table === triggerRunEventTable);
+    expect(patch?.set).toMatchObject({
+      status: "error",
+      error: { message: "boom", truncated: false, originalBytes: 4 },
+    });
+    expect(typeof patch?.set.durationMs).toBe("number");
+  });
+
+  it("writes nothing while no event has been recorded", async () => {
+    await startWithEvents();
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(eventRows()).toEqual([]);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("closes still-open events with the run's terminal status before the terminal row is written", async () => {
+    const { sink, events } = await startWithEvents();
+    events.open(null, { type: "tool-call", toolName: "slow" });
+
+    await sink.onFinish({
+      runId: "run-1",
+      status: "cancelled",
+      messages: [],
+      stats: {},
+    });
+
+    // The event landed cancelled, in the terminal batch, before the run row
+    // flipped — so no poller sees a terminal run with a running event.
+    expect(eventRows()).toHaveLength(1);
+    expect(eventRows()[0][0]).toMatchObject({
+      status: "cancelled",
+      toolName: "slow",
+    });
+    expect(typeof eventRows()[0][0].durationMs).toBe("number");
+    const eventInsertAt = mockDb.insert.mock.invocationCallOrder.at(-1)!;
+    const rowUpdateAt = mockDb.update.mock.invocationCallOrder.at(-1)!;
+    expect(eventInsertAt).toBeLessThan(rowUpdateAt);
+
+    const row = updates().find((u) => u.table === triggerRunTable);
+    expect(row?.set).toMatchObject({ status: "cancelled" });
+  });
+
+  it("closes a failed run's open events as errors", async () => {
+    const { sink, events } = await startWithEvents();
+    events.open(null, { type: "text" });
+
+    await sink.onFinish({
+      runId: "run-1",
+      status: "failed",
+      messages: [],
+      stats: {},
+      error: new Error("per-run timeout"),
+    });
+
+    expect(eventRows()[0][0]).toMatchObject({ status: "error" });
+  });
+
+  it("marks the run truncated on the very next flush after the ceiling is hit, not only at the end", async () => {
+    const sink = new TriggerSink({
+      triggerId: "trigger-1",
+      flushIntervalMs: 100,
+    });
+    const events = new RunEventRecorder({ runId: "run-1", ceiling: 1 });
+    await sink.onStart({ runId: "run-1", messages: [], events });
+    events.open(null, { type: "text" });
+    events.open(null, { type: "text" });
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    const row = updates().find((u) => u.table === triggerRunTable);
+    expect(row?.set).toEqual({ eventsTruncated: true });
+  });
+
+  it("marks the run when its timeline hit the event ceiling", async () => {
+    const sink = new TriggerSink({
+      triggerId: "trigger-1",
+      flushIntervalMs: 100,
+    });
+    const events = new RunEventRecorder({ runId: "run-1", ceiling: 1 });
+    await sink.onStart({ runId: "run-1", messages: [], events });
+    events.open(null, { type: "text" });
+    events.open(null, { type: "text" });
+
+    await sink.onFinish({
+      runId: "run-1",
+      status: "succeeded",
+      messages: [],
+      stats: {},
+    });
+
+    const row = updates().find((u) => u.table === triggerRunTable);
+    expect(row?.set).toMatchObject({ eventsTruncated: true });
   });
 });

@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { Tool } from "ai";
 import type {
-  LanguageModelV3GenerateResult,
+  LanguageModelV3FinishReason,
   LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
 } from "@ai-sdk/provider";
 import { MockLanguageModelV3, simulateReadableStream } from "ai/test";
 import { z } from "zod";
 import { startRun } from "./run-lifecycle.ts";
 import { runRegistry, TimeoutError } from "./run-registry.ts";
 import { driveChat, driveDelegate, driveOnce } from "./drive.ts";
+import { RunEventRecorder } from "./run-events.ts";
 import type { RunStatus } from "./types.ts";
 import { CLEARED_TOOL_RESULT_MARKER } from "./tool-result-clearing.ts";
 import type { ModelMessage } from "ai";
@@ -63,26 +65,28 @@ const modelOf = (...steps: LanguageModelV3StreamPart[][]) => {
   });
 };
 
-/** A model backing the non-streamed `generateText` path. */
-const generatingModel = (
-  overrides: Partial<LanguageModelV3GenerateResult> = {},
+/**
+ * A one-step streaming model whose terminal finish and usage the test picks.
+ * The headless drive streams too now (#647), so every drive shape is backed
+ * by `doStream` and the mock generate path is gone.
+ */
+const finishingModel = (
+  overrides: {
+    finishReason?: LanguageModelV3FinishReason;
+    usage?: LanguageModelV3Usage;
+  } = {},
 ): MockLanguageModelV3 =>
-  new MockLanguageModelV3({
-    doGenerate: {
-      content: [{ type: "text", text: "ok" }],
-      finishReason: { unified: "stop", raw: "stop" },
-      usage: {
-        inputTokens: {
-          total: 10,
-          noCache: 10,
-          cacheRead: undefined,
-          cacheWrite: undefined,
-        },
-        outputTokens: { total: 4, text: 4, reasoning: undefined },
-      },
-      ...overrides,
-    } as LanguageModelV3GenerateResult,
-  });
+  modelOf([
+    { type: "stream-start", warnings: [] },
+    { type: "text-start", id: "t1" },
+    { type: "text-delta", id: "t1", delta: "ok" },
+    { type: "text-end", id: "t1" },
+    {
+      type: "finish",
+      finishReason: overrides.finishReason ?? { unified: "stop", raw: "stop" },
+      usage: overrides.usage ?? USAGE,
+    },
+  ]);
 
 const STUCK_TOOL = "probe";
 
@@ -117,28 +121,6 @@ const stuckStreamingModel = () => {
           ],
         }),
       });
-    },
-  });
-};
-
-/** The same stuck loop on the `generateText` path. */
-const stuckGeneratingModel = () => {
-  let index = 0;
-  return new MockLanguageModelV3({
-    doGenerate: () => {
-      const id = `tc${(index += 1)}`;
-      return Promise.resolve({
-        content: [
-          {
-            type: "tool-call",
-            toolCallId: id,
-            toolName: STUCK_TOOL,
-            input: "{}",
-          },
-        ],
-        finishReason: { unified: "tool-calls", raw: "tool_calls" },
-        usage: USAGE,
-      } as unknown as LanguageModelV3GenerateResult);
     },
   });
 };
@@ -251,25 +233,6 @@ const streamingToolThenStopModel = (): MockLanguageModelV3 => {
   });
 };
 
-/** The generate model: a tool call and text in one result. */
-const generatingToolThenStopModel = (): MockLanguageModelV3 =>
-  new MockLanguageModelV3({
-    doGenerate: (): Promise<LanguageModelV3GenerateResult> =>
-      Promise.resolve({
-        content: [
-          {
-            type: "tool-call",
-            toolCallId: "tc1",
-            toolName: "probe",
-            input: "{}",
-          },
-          { type: "text", text: "ok" },
-        ],
-        finishReason: { unified: "stop", raw: "stop" },
-        usage: USAGE,
-      } as unknown as LanguageModelV3GenerateResult),
-  });
-
 describe("driveOnce", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -279,7 +242,7 @@ describe("driveOnce", () => {
     const { run, outcome } = startRecordedRun();
 
     const { text: textOut, stats } = await driveOnce({
-      plan: planOf(generatingModel()),
+      plan: planOf(finishingModel()),
       run,
       prompt: "hi",
     });
@@ -296,7 +259,7 @@ describe("driveOnce", () => {
 
     const { stats } = await driveOnce({
       plan: planOf(
-        generatingModel({
+        finishingModel({
           finishReason: { unified: "length", raw: "max_tokens" },
         }),
       ),
@@ -308,16 +271,16 @@ describe("driveOnce", () => {
     expect(outcome[0].stats).toMatchObject({ truncatedByTokenLimit: true });
   });
 
-  // Issue #734. The non-streamed `generateText` path folds usage through
-  // `computeStats`, which must carry the cached-input breakdown the same way
-  // the streamed accumulator does. A write of 0 is a real measurement and is
-  // kept, not treated as absent.
+  // Issue #734. The headless path folds usage through `computeStats`, which
+  // must carry the cached-input breakdown the same way the streamed
+  // accumulator does. A write of 0 is a real measurement and is kept, not
+  // treated as absent.
   it("carries cached read and write counts onto the run's stats", async () => {
     const { run, outcome } = startRecordedRun();
 
     const { stats } = await driveOnce({
       plan: planOf(
-        generatingModel({
+        finishingModel({
           usage: {
             inputTokens: {
               total: 920,
@@ -345,7 +308,7 @@ describe("driveOnce", () => {
     const { run } = startRecordedRun();
 
     const { stats } = await driveOnce({
-      plan: planOf(generatingModel()),
+      plan: planOf(finishingModel()),
       prompt: "hi",
       run,
     });
@@ -357,7 +320,7 @@ describe("driveOnce", () => {
   it("finishes as failed and rethrows when the model call throws", async () => {
     const { run, outcome } = startRecordedRun();
     const model = new MockLanguageModelV3({
-      doGenerate: () => {
+      doStream: () => {
         throw new Error("provider exploded");
       },
     });
@@ -374,7 +337,7 @@ describe("driveOnce", () => {
   it("finishes as cancelled when the run is stopped while generating", async () => {
     const { run, outcome } = startRecordedRun();
     const model = new MockLanguageModelV3({
-      doGenerate: () =>
+      doStream: () =>
         new Promise<never>((_, reject) => {
           run.handle.signal.addEventListener("abort", () =>
             reject(run.handle.signal.reason ?? new Error("aborted")),
@@ -396,7 +359,7 @@ describe("driveOnce", () => {
     const { run, outcome } = startRecordedRun();
 
     await driveOnce({
-      plan: stuckPlanOf(stuckGeneratingModel()),
+      plan: stuckPlanOf(stuckStreamingModel()),
       run,
       prompt: "hi",
     });
@@ -415,7 +378,7 @@ describe("driveOnce", () => {
     const { run, outcome } = startRecordedRun();
 
     const { stats } = await driveOnce({
-      plan: oneStepPlanOf(stuckGeneratingModel()),
+      plan: oneStepPlanOf(stuckStreamingModel()),
       run,
       prompt: "hi",
     });
@@ -429,7 +392,7 @@ describe("driveOnce", () => {
     const { run, outcome } = startRecordedRun();
 
     const { stats } = await driveOnce({
-      plan: planOf(generatingModel()),
+      plan: planOf(finishingModel()),
       run,
       prompt: "hi",
     });
@@ -445,7 +408,7 @@ describe("driveOnce", () => {
     const { run, outcome } = startRecordedRun();
 
     const { stats } = await driveOnce({
-      plan: stuckPlanOf(stuckGeneratingModel()),
+      plan: stuckPlanOf(stuckStreamingModel()),
       run,
       prompt: "hi",
     });
@@ -459,7 +422,7 @@ describe("driveOnce", () => {
   // the chain is what an Event Trigger's loop guard reads (ADR-0022, #668).
   it("establishes its agent's causation chain for the tools it runs", async () => {
     const { run } = startRecordedRun();
-    const { plan, seen } = causationProbePlan(generatingToolThenStopModel());
+    const { plan, seen } = causationProbePlan(streamingToolThenStopModel());
 
     await driveOnce({ plan, run, prompt: "hi", agentId: "agent-9" });
 
@@ -469,7 +432,7 @@ describe("driveOnce", () => {
 
   it("runs uncaused when no agent id is given", async () => {
     const { run } = startRecordedRun();
-    const { plan, seen } = causationProbePlan(generatingToolThenStopModel());
+    const { plan, seen } = causationProbePlan(streamingToolThenStopModel());
 
     await driveOnce({ plan, run, prompt: "hi" });
 
@@ -998,18 +961,6 @@ describe("Tool-result clearing inheritance", () => {
       },
     });
 
-  const capturingGenerateModel = (record: { prompt?: unknown }) =>
-    new MockLanguageModelV3({
-      doGenerate: (options: { prompt: unknown }) => {
-        record.prompt = options.prompt;
-        return Promise.resolve({
-          content: [{ type: "text", text: "ok" }],
-          finishReason: { unified: "stop", raw: "stop" },
-          usage: USAGE,
-        } as unknown as LanguageModelV3GenerateResult);
-      },
-    });
-
   it("driveChat clears stale tool results already past threshold on the first call", async () => {
     const { run } = startRecordedRun();
     const record: { prompt?: unknown } = {};
@@ -1044,7 +995,7 @@ describe("Tool-result clearing inheritance", () => {
     const { run } = startRecordedRun();
     const record: { prompt?: unknown } = {};
     await driveOnce({
-      plan: clearingPlanOf(capturingGenerateModel(record)),
+      plan: clearingPlanOf(capturingStreamModel(record)),
       run,
       modelMessages: staleToolMessages(10),
     });
@@ -1057,7 +1008,7 @@ describe("Tool-result clearing inheritance", () => {
     const record: { prompt?: unknown } = {};
     await driveOnce({
       plan: {
-        ...clearingPlanOf(capturingGenerateModel(record)),
+        ...clearingPlanOf(capturingStreamModel(record)),
         initialOccupancy: 10,
       },
       run,
@@ -1067,5 +1018,223 @@ describe("Tool-result clearing inheritance", () => {
     expect(JSON.stringify(record.prompt)).not.toContain(
       CLEARED_TOOL_RESULT_MARKER,
     );
+  });
+});
+/**
+ * The headless drive's Run timeline (#647, ADR-0023). Driven with a real SDK
+ * pipeline and a mock model, the way the terminal-status tests above are: what
+ * the recorder receives is decided by which stream chunks the drive feeds it,
+ * and that is the drive's contract.
+ */
+describe("driveOnce run events", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const toolCall = (
+    id: string,
+    toolName: string,
+    input = "{}",
+  ): LanguageModelV3StreamPart[] => [
+    { type: "tool-input-start", id, toolName },
+    { type: "tool-input-end", id },
+    { type: "tool-call", toolCallId: id, toolName, input },
+  ];
+
+  const step = (
+    parts: LanguageModelV3StreamPart[],
+    unified: "stop" | "tool-calls" = "stop",
+  ): LanguageModelV3StreamPart[] => [
+    { type: "stream-start", warnings: [] },
+    ...parts,
+    { type: "finish", finishReason: { unified, raw: unified }, usage: USAGE },
+  ];
+
+  /** Reasoning, then one tool call; then a text answer. */
+  const reasonToolThenText = () =>
+    modelOf(
+      step(
+        [
+          { type: "reasoning-start", id: "r1" },
+          { type: "reasoning-delta", id: "r1", delta: "thinking" },
+          { type: "reasoning-end", id: "r1" },
+          ...toolCall("tc1", "lookup", JSON.stringify({ q: "SECRET-INPUT" })),
+        ],
+        "tool-calls",
+      ),
+      step([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "done" },
+        { type: "text-end", id: "t1" },
+      ]),
+    );
+
+  const toolsOf = (execute: (name: string) => Promise<unknown>) =>
+    ({
+      lookup: {
+        inputSchema: z.object({ q: z.string().optional() }),
+        execute: () => execute("lookup"),
+      },
+      fetch: {
+        inputSchema: z.object({}),
+        execute: () => execute("fetch"),
+      },
+    }) as unknown as Record<string, Tool>;
+
+  it("records each tool call, reasoning stretch and text stretch with a start and a duration", async () => {
+    const { run } = startRecordedRun();
+    const events = new RunEventRecorder({ runId: run.handle.runId });
+
+    await driveOnce({
+      plan: {
+        model: reasonToolThenText(),
+        tools: toolsOf(async () => {
+          await sleep(20);
+          return "found";
+        }),
+        maxSteps: 3,
+      },
+      run,
+      prompt: "hi",
+      events,
+    });
+
+    const byType = events.events.map((e) => [e.type, e.toolName, e.status]);
+    expect(byType).toEqual([
+      ["reasoning", null, "completed"],
+      ["tool-call", "lookup", "completed"],
+      ["text", null, "completed"],
+    ]);
+    for (const event of events.events) {
+      expect(event.startedAt).toBeGreaterThan(0);
+      expect(event.durationMs).toBeGreaterThanOrEqual(0);
+    }
+    expect(events.events[1].durationMs).toBeGreaterThanOrEqual(15);
+  });
+
+  it("stores no tool input, tool output, reasoning or message content", async () => {
+    const { run } = startRecordedRun();
+    const events = new RunEventRecorder({ runId: run.handle.runId });
+
+    await driveOnce({
+      plan: {
+        model: reasonToolThenText(),
+        tools: toolsOf(() => Promise.resolve("SECRET-OUTPUT".repeat(2000))),
+        maxSteps: 3,
+      },
+      run,
+      prompt: "hi",
+      events,
+    });
+
+    const serialized = JSON.stringify(events.events);
+    expect(serialized).not.toContain("SECRET-INPUT");
+    expect(serialized).not.toContain("SECRET-OUTPUT");
+    expect(serialized).not.toContain("thinking");
+    expect(serialized).not.toContain("done");
+  });
+
+  it("records tool calls issued in parallel as overlapping, not sequential", async () => {
+    const { run } = startRecordedRun();
+    const events = new RunEventRecorder({ runId: run.handle.runId });
+    const model = modelOf(
+      step(
+        [...toolCall("tc1", "lookup"), ...toolCall("tc2", "fetch")],
+        "tool-calls",
+      ),
+      step([
+        { type: "text-start", id: "t1" },
+        { type: "text-delta", id: "t1", delta: "done" },
+        { type: "text-end", id: "t1" },
+      ]),
+    );
+
+    await driveOnce({
+      plan: {
+        model,
+        tools: toolsOf(async () => {
+          await sleep(40);
+          return "ok";
+        }),
+        maxSteps: 3,
+      },
+      run,
+      prompt: "hi",
+      events,
+    });
+
+    const calls = events.events.filter((e) => e.type === "tool-call");
+    expect(calls.map((c) => c.toolName)).toEqual(["lookup", "fetch"]);
+    const [a, b] = calls;
+    // Each started before the other ended: the SDK runs a step's tool calls
+    // concurrently, and the timeline has to say so.
+    expect(a.startedAt).toBeLessThan(b.startedAt + b.durationMs!);
+    expect(b.startedAt).toBeLessThan(a.startedAt + a.durationMs!);
+  });
+
+  it("records a failed tool call as an error status carrying the error", async () => {
+    const { run } = startRecordedRun();
+    const events = new RunEventRecorder({ runId: run.handle.runId });
+
+    await driveOnce({
+      plan: {
+        model: reasonToolThenText(),
+        tools: toolsOf(() => Promise.reject(new Error("upstream 503"))),
+        maxSteps: 3,
+      },
+      run,
+      prompt: "hi",
+      events,
+    });
+
+    const call = events.events.find((e) => e.type === "tool-call")!;
+    expect(call.status).toBe("error");
+    expect(call.error?.message).toContain("upstream 503");
+    expect(call.error?.truncated).toBe(false);
+  });
+
+  // Under `generateText` a mid-stream provider error rejected the call. Under
+  // `streamText` it arrives as an error part and the stream ends normally, so
+  // the drive has to read it and fail the run itself.
+  it("ends the run as failed with an error message when the provider errors mid-stream", async () => {
+    const { run, outcome } = startRecordedRun();
+    const model = modelOf(step([...toolCall("tc1", "lookup")], "tool-calls"), [
+      { type: "stream-start", warnings: [] },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "partial" },
+      { type: "error", error: new Error("provider exploded mid-stream") },
+    ]);
+
+    await expect(
+      driveOnce({
+        plan: {
+          model,
+          tools: toolsOf(() => Promise.resolve("ok")),
+          maxSteps: 3,
+        },
+        run,
+        prompt: "hi",
+      }),
+    ).rejects.toThrow(/provider exploded mid-stream/);
+
+    expect(outcome).toHaveLength(1);
+    expect(outcome[0].status).toBe("failed");
+    expect(outcome[0].error?.message).toMatch(/provider exploded mid-stream/);
+  });
+
+  it("hands the final text over before the run is finished", async () => {
+    const { run, outcome } = startRecordedRun();
+    const order: string[] = [];
+
+    const { text: textOut } = await driveOnce({
+      plan: planOf(finishingModel()),
+      run,
+      prompt: "hi",
+      onFinal: (text) => {
+        order.push(`final:${text}`);
+        order.push(`terminated:${outcome.length}`);
+      },
+    });
+
+    expect(textOut).toBe("ok");
+    expect(order).toEqual(["final:ok", "terminated:0"]);
   });
 });

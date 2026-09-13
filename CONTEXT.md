@@ -32,7 +32,7 @@ _Avoid_: parsed text, converted file, OCR (Platypus does not OCR).
 A configurable preset that pins a Provider, model, Instructions, generation parameters, Tools, Skills, and Sub-Agents. Selecting an Agent on a Chat turn replaces direct Provider/model selection.
 
 **Sub-Agent**:
-An Agent referenced by a parent Agent, advertised to it in a catalogue and reachable by name through the parent's one delegation Tool. Invoking it starts a run in its own right — bounded by the same per-step and per-run timeouts the parent turn was started under, and cancelled when the parent is — but never a Chat: nothing about a delegated run is persisted.
+An Agent referenced by a parent Agent, advertised to it in a catalogue and reachable by name through the parent's one delegation Tool. Invoking it starts a run in its own right — bounded by the same per-step and per-run timeouts the parent turn was started under, and cancelled when the parent is — but never a Chat, and never a run record of its own: under a **Trigger run** its work is persisted as **Run events** nested beneath the parent's delegation, and under a Chat turn only as the parent message's tool part.
 
 **Turn resolution**:
 The phase of a **Chat turn** before the model request is sent: the **Tool session** is opened, Skills, Memories and **Contexts** are loaded, **File parts** are resolved to bytes or **Extracted text**, and the **System prompt** is rendered. Ends where the **Drive** begins, so the two are sequential and together are the whole of what a User waits for. Surfaced to Users as "Preparation".
@@ -146,8 +146,16 @@ A saved automation that runs an Agent unattended against a fixed Instruction —
 _Avoid_: automation, job, scheduler, webhook (that delivers events out; it runs nothing).
 
 **Trigger run**:
-One execution of a **Trigger** — the headless shape of a **Drive**. Recorded separately from any Chat under its own status vocabulary (`pending` / `running` / `success` / `failed` / `suppressed` — not the chat-run words), with its own stats and its own retention: Max Runs to Keep bounds the history, everything inside the run-rate breaker's window is kept so its count stays countable, and _suppressed_ rows have a budget of their own. A _suppressed_ Trigger run is a firing the run-rate breaker dropped before the Agent started, so it never ran; the row is the visible trace of the breaker tripping. Bounded by the same **Output ceiling** and **Step ceiling** as any Drive, plus the unattended-only no-progress stop: repeating the same tool call and getting the same result several times in a row ends the run as _failed_, naming the tool — distinct from a step-limit stop, which still ends _success_.
+One execution of a **Trigger** — the headless shape of a **Drive**. Recorded separately from any Chat under its own status vocabulary (`pending` / `running` / `success` / `failed` / `cancelled` / `suppressed` — not the chat-run words), with its own stats, its own **Run timeline** and its own retention: Max Runs to Keep bounds the history, everything inside the run-rate breaker's window is kept so its count stays countable, and _suppressed_ rows have a budget of their own. A _suppressed_ Trigger run is a firing the run-rate breaker dropped before the Agent started, so it never ran; the row is the visible trace of the breaker tripping. Bounded by the same **Output ceiling** and **Step ceiling** as any Drive, plus the unattended-only no-progress stop: repeating the same tool call and getting the same result several times in a row ends the run as _failed_, naming the tool — distinct from a step-limit stop, which still ends _success_.
 _Avoid_: trigger execution, scheduled run (ambiguous between the Trigger shapes).
+
+**Run event**:
+A durable, timestamped record of one thing that happened during a **Trigger run** — a tool call, a stretch of reasoning, a stretch of generated text, or a delegation to a **Sub-Agent**. Carries what kind of thing it was, when it started, how long it took and how it ended; never what it said. No tool inputs, no tool outputs, no reasoning or message content (ADR-0023). A failed event carries a capped error string, and nothing else carries content at all.
+_Avoid_: span, trace, log entry — the first two drag OpenTelemetry's model in and these are not OTel spans; the third implies free-text and unbounded.
+
+**Run timeline**:
+The ordered sequence of a **Trigger run**'s **Run events**, nested where a **Sub-Agent** delegation opened its own run beneath the parent's. Ordered by start time, so tool calls issued in parallel read as overlapping rather than one after another. Answers where a single run's time went, and only that — comparing runs to each other is outside it by ADR-0023.
+_Avoid_: trace, run log, run history.
 
 **Webhook**:
 An outbound subscription that delivers Workspace **Webhook events** to an external HTTPS URL — fire-and-forget, never blocking the action that produced the event. Each delivery carries an envelope (event name, timestamp, org and workspace ids, the event's `data`) and is signed with the Webhook's signing secret (HMAC-SHA256 over the raw body); failures retry three times (1s/2s/4s backoff), then the delivery is given up. Consumes the same event stream as an **Event Trigger** but sends it out rather than running an Agent.

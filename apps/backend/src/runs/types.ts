@@ -2,6 +2,7 @@ import type { PlatypusUIMessage } from "../types.ts";
 import type { CachedInputTokens } from "@platypus/schemas";
 import type { WorkspaceScope } from "../scope.ts";
 import type { RunTimeouts } from "./run-registry.ts";
+import type { RunEventRecorder } from "./run-events.ts";
 
 export type RunId = string;
 
@@ -239,6 +240,13 @@ export interface RunSink {
      * runs pass none.
      */
     memorySnapshot?: string;
+    /**
+     * The run's **Run event** recorder (#647), for a sink that persists a Run
+     * timeline. Handed over at start so the sink can flush events on its own
+     * cadence for the whole of the run; the drive fills it. Only headless runs
+     * carry one — a Chat turn's message parts remain its record.
+     */
+    events?: RunEventRecorder;
   }): Promise<void>;
   onResolved(ctx: { runId: RunId; plan: ResolvedRunPlan }): Promise<void>;
   onProgress(ctx: {
@@ -252,5 +260,11 @@ export interface RunSink {
     messages: PlatypusUIMessage[];
     stats: RunStats;
     error?: Error;
+    /**
+     * The final assistant text of a headless run (#647) — "what did it
+     * conclude", one value per run. Absent for a Chat turn, whose answer is
+     * in `messages`, and for a run that ended before it had one.
+     */
+    finalText?: string;
   }): Promise<void>;
 }

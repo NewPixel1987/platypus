@@ -1,14 +1,8 @@
 ---
-status: accepted-pending-implementation
-implemented-by: "#647"
+status: accepted
 ---
 
 # A Run timeline records shape and duration, never payloads
-
-> **In the code today.** A **Trigger run** persists one row of aggregates — a
-> `stats` blob of step and tool-call counts plus token usage — and nothing
-> per-step. There are no Run events, no run detail page, and a delegated run
-> leaves no trace at all. See `apps/backend/src/runs/sinks/trigger-sink.ts`.
 
 A **Trigger run** reduces to one row of aggregates, so "why did this take 90
 seconds?" has no answer, and a run that fans out to Sub-Agents records nothing

@@ -14,7 +14,6 @@ type MetadataPart = {
 const {
   mockPrepareChatTurn,
   mockValidateTurnAttachments,
-  mockGenerateText,
   mockStreamText,
   streamHarness,
 } = vi.hoisted(() => {
@@ -53,7 +52,6 @@ const {
   return {
     mockPrepareChatTurn: vi.fn(),
     mockValidateTurnAttachments: vi.fn(),
-    mockGenerateText: vi.fn(),
     mockStreamText: vi.fn(),
     streamHarness: {
       AsyncQueue,
@@ -89,7 +87,6 @@ vi.mock("ai", async () => {
   const actual = await vi.importActual("ai");
   return {
     ...actual,
-    generateText: mockGenerateText,
     streamText: mockStreamText,
     convertToModelMessages: vi.fn().mockReturnValue([]),
     createIdGenerator: vi.fn().mockReturnValue(() => "msg-1"),
@@ -115,9 +112,15 @@ import { runRegistry, TimeoutError } from "./run-registry.ts";
 import { openToolSession } from "../tools/tool-session.ts";
 import type { ResolvedRunPlan, RunInput, RunSink, RunStats } from "./types.ts";
 import type { WorkspaceScope } from "../scope.ts";
+import { RunEventRecorder } from "./run-events.ts";
 
 type LifecycleEvent =
-  | { name: "onStart"; runId: string; messages?: unknown[] }
+  | {
+      name: "onStart";
+      runId: string;
+      messages?: unknown[];
+      events?: RunEventRecorder;
+    }
   | { name: "onResolved"; runId: string; plan: ResolvedRunPlan }
   | { name: "onProgress"; runId: string }
   | {
@@ -127,16 +130,22 @@ type LifecycleEvent =
       error?: string;
       messages?: unknown[];
       stats?: RunStats;
+      finalText?: string;
     };
 
 class RecordingSink implements RunSink {
   events: LifecycleEvent[] = [];
 
-  onStart(ctx: { runId: string; messages?: unknown[] }): Promise<void> {
+  onStart(ctx: {
+    runId: string;
+    messages?: unknown[];
+    events?: RunEventRecorder;
+  }): Promise<void> {
     this.events.push({
       name: "onStart",
       runId: ctx.runId,
       messages: ctx.messages,
+      events: ctx.events,
     });
     return Promise.resolve();
   }
@@ -154,6 +163,7 @@ class RecordingSink implements RunSink {
     error?: Error;
     messages?: unknown[];
     stats?: RunStats;
+    finalText?: string;
   }): Promise<void> {
     this.events.push({
       name: "onFinish",
@@ -162,6 +172,7 @@ class RecordingSink implements RunSink {
       error: ctx.error?.message,
       messages: ctx.messages,
       stats: ctx.stats,
+      finalText: ctx.finalText,
     });
     return Promise.resolve();
   }
@@ -216,6 +227,49 @@ const fakeGenerateResult = {
   totalUsage: { inputTokens: 10, outputTokens: 5 },
 };
 
+/**
+ * What the headless drive reads off a `streamText` result: a UI message stream
+ * it drains (empty here — these tests drive the callbacks by hand) and the
+ * promise-valued terminal fields. `settleAfter`, when given, gates every field
+ * on it, so a test can make the model "hang" until a signal fires and fail the
+ * fields with that signal's reason.
+ */
+const streamResultOf = (
+  data: {
+    text?: string;
+    steps?: unknown[];
+    totalUsage?: unknown;
+    finishReason?: string;
+    rawFinishReason?: string;
+  },
+  opts: { settleAfter?: Promise<unknown> } = {},
+) => {
+  const gate = opts.settleAfter ?? Promise.resolve();
+  const after = <T>(value: T) => gate.then(() => value);
+  return {
+    toUIMessageStream: () => emptyUIStream(),
+    text: after(data.text ?? "ok"),
+    steps: after(data.steps ?? []),
+    totalUsage: after(data.totalUsage ?? {}),
+    finishReason: after(data.finishReason ?? "stop"),
+    rawFinishReason: after(data.rawFinishReason ?? "stop"),
+  };
+};
+
+/** A model that hangs until `signal` aborts, then fails with its reason. */
+const hangingUntilAbort = ({ abortSignal }: { abortSignal: AbortSignal }) =>
+  streamResultOf(fakeGenerateResult, {
+    settleAfter: new Promise<never>((_, reject) => {
+      if (abortSignal.aborted) {
+        reject(abortSignal.reason ?? new Error("aborted"));
+        return;
+      }
+      abortSignal.addEventListener("abort", () =>
+        reject(abortSignal.reason ?? new Error("aborted")),
+      );
+    }),
+  });
+
 // Issue #406: a step that ended at the output ceiling, or that the provider
 // rejected as a malformed tool use, used to log identically to a clean one.
 // The unified reason alone is not enough — it is exactly what collapses
@@ -235,7 +289,7 @@ describe("finish reason instrumentation", () => {
 
   it("logs both the unified and the raw finish reason for every step", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementationOnce(
+    mockStreamText.mockImplementationOnce(
       (args: { onStepFinish: (s: unknown) => void }) => {
         args.onStepFinish({
           toolCalls: [{ toolName: "listBoards" }],
@@ -243,7 +297,7 @@ describe("finish reason instrumentation", () => {
           finishReason: "tool-calls",
           rawFinishReason: "tool_use",
         });
-        return fakeGenerateResult;
+        return streamResultOf(fakeGenerateResult);
       },
     );
 
@@ -263,7 +317,7 @@ describe("finish reason instrumentation", () => {
   // collapses to `other` in the unified union and is otherwise unrecoverable.
   it("logs an unrecognised raw finish reason verbatim rather than swallowing it", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementationOnce(
+    mockStreamText.mockImplementationOnce(
       (args: { onStepFinish: (s: unknown) => void }) => {
         args.onStepFinish({
           toolCalls: [],
@@ -271,7 +325,7 @@ describe("finish reason instrumentation", () => {
           finishReason: "other",
           rawFinishReason: "malformed_tool_use",
         });
-        return fakeGenerateResult;
+        return streamResultOf(fakeGenerateResult);
       },
     );
 
@@ -289,7 +343,7 @@ describe("finish reason instrumentation", () => {
 
   it("warns when a step stops at the output token limit", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementationOnce(
+    mockStreamText.mockImplementationOnce(
       (args: { onStepFinish: (s: unknown) => void }) => {
         args.onStepFinish({
           toolCalls: [],
@@ -297,7 +351,7 @@ describe("finish reason instrumentation", () => {
           finishReason: "length",
           rawFinishReason: "max_tokens",
         });
-        return fakeGenerateResult;
+        return streamResultOf(fakeGenerateResult);
       },
     );
 
@@ -317,12 +371,14 @@ describe("finish reason instrumentation", () => {
   // stats the sink persists are the only place a cut-short run can be recorded.
   it("flags the stats when an unattended run stopped at the output limit", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce({
-      ...fakeGenerateResult,
-      text: "half an ans",
-      finishReason: "length",
-      rawFinishReason: "max_tokens",
-    });
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({
+        ...fakeGenerateResult,
+        text: "half an ans",
+        finishReason: "length",
+        rawFinishReason: "max_tokens",
+      }),
+    );
     const sink = new RecordingSink();
 
     const result = await runner.generate({ scope, input: baseInput, sink });
@@ -335,11 +391,13 @@ describe("finish reason instrumentation", () => {
 
   it("leaves a cleanly finished unattended run's stats unflagged", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce({
-      ...fakeGenerateResult,
-      finishReason: "stop",
-      rawFinishReason: "end_turn",
-    });
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({
+        ...fakeGenerateResult,
+        finishReason: "stop",
+        rawFinishReason: "end_turn",
+      }),
+    );
     const sink = new RecordingSink();
 
     const result = await runner.generate({ scope, input: baseInput, sink });
@@ -350,11 +408,13 @@ describe("finish reason instrumentation", () => {
 
   it("records the finish reasons on the unattended completion log", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce({
-      ...fakeGenerateResult,
-      finishReason: "stop",
-      rawFinishReason: "end_turn",
-    });
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({
+        ...fakeGenerateResult,
+        finishReason: "stop",
+        rawFinishReason: "end_turn",
+      }),
+    );
 
     await runner.generate({
       scope,
@@ -401,10 +461,10 @@ describe("rejected tool input instrumentation", () => {
 
   const generateWithStep = async (content: unknown[]) => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementationOnce(
+    mockStreamText.mockImplementationOnce(
       (args: { onStepFinish: (s: unknown) => void }) => {
         args.onStepFinish(stepWith(content));
-        return fakeGenerateResult;
+        return streamResultOf(fakeGenerateResult);
       },
     );
     await runner.generate({
@@ -526,10 +586,48 @@ describe("AgentRunner.generate", () => {
     vi.clearAllMocks();
   });
 
+  // #647: a headless run's Run timeline. The runner owns the recorder — one per
+  // run — and hands it to the sink at start, so the sink can flush events on
+  // its own cadence, and to the drive, which fills it.
+  it("hands the sink a Run event recorder for this run at start", async () => {
+    mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
+
+    const sink = new RecordingSink();
+    await runner.generate({
+      scope,
+      input: { ...baseInput, runId: "events-1" },
+      sink,
+    });
+
+    const start = sink.events[0] as Extract<
+      LifecycleEvent,
+      { name: "onStart" }
+    >;
+    expect(start.events).toBeInstanceOf(RunEventRecorder);
+    expect(start.events?.runId).toBe("events-1");
+  });
+
+  it("hands the sink the final assistant text at finish", async () => {
+    mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({ ...fakeGenerateResult, text: "The conclusion." }),
+    );
+
+    const sink = new RecordingSink();
+    await runner.generate({ scope, input: baseInput, sink });
+
+    const finish = sink.events.at(-1) as Extract<
+      LifecycleEvent,
+      { name: "onFinish" }
+    >;
+    expect(finish.finalText).toBe("The conclusion.");
+  });
+
   it("runs the full lifecycle on success and disposes the turn", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn({ dispose }));
-    mockGenerateText.mockResolvedValueOnce(fakeGenerateResult);
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
 
     const sink = new RecordingSink();
     const result = await runner.generate({ scope, input: baseInput, sink });
@@ -551,14 +649,16 @@ describe("AgentRunner.generate", () => {
   // — are both cross-step sums.
   it("records Context occupancy from the final step, not the sum across steps", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce({
-      text: "ok",
-      steps: [
-        { toolCalls: [], usage: { inputTokens: 1_000, outputTokens: 40 } },
-        { toolCalls: [], usage: { inputTokens: 3_500, outputTokens: 60 } },
-      ],
-      totalUsage: { inputTokens: 4_500, outputTokens: 100 },
-    });
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({
+        text: "ok",
+        steps: [
+          { toolCalls: [], usage: { inputTokens: 1_000, outputTokens: 40 } },
+          { toolCalls: [], usage: { inputTokens: 3_500, outputTokens: 60 } },
+        ],
+        totalUsage: { inputTokens: 4_500, outputTokens: 100 },
+      }),
+    );
 
     const sink = new RecordingSink();
     const result = await runner.generate({ scope, input: baseInput, sink });
@@ -580,18 +680,18 @@ describe("AgentRunner.generate", () => {
   it("clears the interim occupancy when a step reports no usage", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
     const progressed: Array<number | undefined> = [];
-    mockGenerateText.mockImplementationOnce(
-      async ({
-        onStepFinish,
-      }: {
-        onStepFinish: (s: unknown) => void | Promise<void>;
-      }) => {
-        await onStepFinish({
+    mockStreamText.mockImplementationOnce(
+      ({ onStepFinish }: { onStepFinish: (s: unknown) => void }) => {
+        onStepFinish({
           toolCalls: [],
           usage: { inputTokens: 1_000, outputTokens: 40 },
         });
-        await onStepFinish({ toolCalls: [] });
-        return { text: "ok", steps: [{ toolCalls: [] }], totalUsage: {} };
+        onStepFinish({ toolCalls: [] });
+        return streamResultOf({
+          text: "ok",
+          steps: [{ toolCalls: [] }],
+          totalUsage: {},
+        });
       },
     );
 
@@ -610,11 +710,13 @@ describe("AgentRunner.generate", () => {
 
   it("records no occupancy when the Provider reports no usage", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce({
-      text: "ok",
-      steps: [{ toolCalls: [] }],
-      totalUsage: {},
-    });
+    mockStreamText.mockReturnValueOnce(
+      streamResultOf({
+        text: "ok",
+        steps: [{ toolCalls: [] }],
+        totalUsage: {},
+      }),
+    );
 
     const sink = new RecordingSink();
     const result = await runner.generate({ scope, input: baseInput, sink });
@@ -640,13 +742,15 @@ describe("AgentRunner.generate", () => {
     expect(finish.status).toBe("failed");
     expect(finish.error).toBe("Agent not found");
     // Generate model was never invoked
-    expect(mockGenerateText).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
   });
 
   it("invariant: reaches onFinish and disposes the turn when generateText throws", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn({ dispose }));
-    mockGenerateText.mockRejectedValueOnce(new Error("Model error"));
+    mockStreamText.mockImplementationOnce(() => {
+      throw new Error("Model error");
+    });
 
     const sink = new RecordingSink();
     await expect(
@@ -665,7 +769,7 @@ describe("AgentRunner.generate", () => {
 
   it("forwards the resolved plan from prepareChatTurn to onResolved", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce(fakeGenerateResult);
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
 
     const sink = new RecordingSink();
     await runner.generate({ scope, input: baseInput, sink });
@@ -696,13 +800,17 @@ describe("AgentRunner.generate", () => {
   it("enables no-progress detection and records a no_progress failure when it trips", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
     let capturedStopWhen: unknown[] = [];
-    mockGenerateText.mockImplementation(
-      async ({ stopWhen }: { stopWhen: Array<(o: unknown) => unknown> }) => {
+    mockStreamText.mockImplementation(
+      ({ stopWhen }: { stopWhen: Array<(o: unknown) => unknown> }) => {
         capturedStopWhen = stopWhen;
         // The detector is the second condition (the first is the mocked
-        // stepCountIs). Drive it as the SDK loop would, with repeated steps.
-        await stopWhen[1]({ steps: repeatedReadSteps() });
-        return fakeGenerateResult;
+        // stepCountIs). Drive it as the SDK loop would, with repeated steps,
+        // and settle the result only once it has been asked.
+        return streamResultOf(fakeGenerateResult, {
+          settleAfter: Promise.resolve(
+            stopWhen[1]({ steps: repeatedReadSteps() }),
+          ),
+        });
       },
     );
 
@@ -726,8 +834,8 @@ describe("AgentRunner.generate", () => {
 
   it("does not abort when a repeated call's result changes (no trip)", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementation(
-      async ({ stopWhen }: { stopWhen: Array<(o: unknown) => unknown> }) => {
+    mockStreamText.mockImplementation(
+      ({ stopWhen }: { stopWhen: Array<(o: unknown) => unknown> }) => {
         const mk = (cards: number) => ({
           toolResults: [
             {
@@ -739,8 +847,11 @@ describe("AgentRunner.generate", () => {
             },
           ],
         });
-        await stopWhen[1]({ steps: [mk(0), mk(1), mk(2)] });
-        return fakeGenerateResult;
+        return streamResultOf(fakeGenerateResult, {
+          settleAfter: Promise.resolve(
+            stopWhen[1]({ steps: [mk(0), mk(1), mk(2)] }),
+          ),
+        });
       },
     );
 
@@ -913,20 +1024,7 @@ describe("AgentRunner.cancel", () => {
   it("cancels an in-flight generate run with status=cancelled", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
     // Make generateText hang until aborted
-    mockGenerateText.mockImplementation(
-      async ({ abortSignal }: { abortSignal: AbortSignal }) => {
-        await new Promise<never>((_, reject) => {
-          if (abortSignal.aborted) {
-            reject(new Error("aborted"));
-            return;
-          }
-          abortSignal.addEventListener("abort", () =>
-            reject(new Error("aborted")),
-          );
-        });
-        throw new Error("unreachable");
-      },
-    );
+    mockStreamText.mockImplementation(hangingUntilAbort);
 
     const sink = new RecordingSink();
     const inFlight = runner.generate({
@@ -966,16 +1064,7 @@ describe("AgentRunner.cancel", () => {
       return Promise.resolve();
     });
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn({ dispose }));
-    mockGenerateText.mockImplementation(
-      async ({ abortSignal }: { abortSignal: AbortSignal }) => {
-        await new Promise<never>((_, reject) => {
-          abortSignal.addEventListener("abort", () =>
-            reject(new Error("aborted")),
-          );
-        });
-        throw new Error("unreachable");
-      },
-    );
+    mockStreamText.mockImplementation(hangingUntilAbort);
 
     const inFlight = runner.generate({
       scope,
@@ -1004,16 +1093,7 @@ describe("AgentRunner.cancel", () => {
 
   it("per-run timeout produces onFinish with status=failed and TimeoutError", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockImplementation(
-      async ({ abortSignal }: { abortSignal: AbortSignal }) => {
-        await new Promise<never>((_, reject) => {
-          abortSignal.addEventListener("abort", () =>
-            reject(abortSignal.reason ?? new Error("aborted")),
-          );
-        });
-        throw new Error("unreachable");
-      },
-    );
+    mockStreamText.mockImplementation(hangingUntilAbort);
 
     const sink = new RecordingSink();
     const inFlight = runner.generate({
@@ -1039,7 +1119,7 @@ describe("AgentRunner.cancel", () => {
 
   it("unregisters the run after generate succeeds", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(fakeTurn());
-    mockGenerateText.mockResolvedValueOnce(fakeGenerateResult);
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
 
     const sink = new RecordingSink();
     await runner.generate({
@@ -1175,14 +1255,14 @@ describe("a turn that resolves after its run has already terminated", () => {
   });
 
   it("does not invoke the model", async () => {
-    mockGenerateText.mockResolvedValue(fakeGenerateResult);
+    mockStreamText.mockReturnValue(streamResultOf(fakeGenerateResult));
     const sink = new RecordingSink();
 
     await expect(
       timedOutRun(sink, vi.fn().mockResolvedValue(undefined)),
     ).rejects.toThrow(TimeoutError);
 
-    expect(mockGenerateText).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     // The run was told it failed and nothing walked that back — no second
     // terminal write, and no `onResolved` for a plan that never ran.
     expect(sink.names()).toEqual(["onStart", "onFinish"]);
@@ -1815,9 +1895,9 @@ describe("model output ceiling", () => {
     return { ...turn, stream: { ...turn.stream, maxOutputTokens } };
   };
 
-  it("passes the declared ceiling to the unattended generation call", async () => {
+  it("passes the declared ceiling to the unattended streaming call", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(turnWithCeiling(64000));
-    mockGenerateText.mockResolvedValueOnce(fakeGenerateResult);
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
 
     await runner.generate({
       scope,
@@ -1825,7 +1905,7 @@ describe("model output ceiling", () => {
       sink: new RecordingSink(),
     });
 
-    expect(mockGenerateText).toHaveBeenCalledWith(
+    expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({ maxOutputTokens: 64000 }),
     );
   });
@@ -1852,7 +1932,7 @@ describe("model output ceiling", () => {
   // for every Provider that has never set one.
   it("sends no ceiling when the model declares none", async () => {
     mockPrepareChatTurn.mockResolvedValueOnce(turnWithCeiling(undefined));
-    mockGenerateText.mockResolvedValueOnce(fakeGenerateResult);
+    mockStreamText.mockReturnValueOnce(streamResultOf(fakeGenerateResult));
 
     await runner.generate({
       scope,
@@ -1860,7 +1940,7 @@ describe("model output ceiling", () => {
       sink: new RecordingSink(),
     });
 
-    const args = mockGenerateText.mock.calls[0][0] as {
+    const args = mockStreamText.mock.calls[0][0] as {
       maxOutputTokens?: number;
     };
     expect(args.maxOutputTokens).toBeUndefined();

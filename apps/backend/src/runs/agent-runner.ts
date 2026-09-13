@@ -16,6 +16,7 @@ import type { PlatypusUIMessage } from "../types.ts";
 import { runRegistry, type RunTimeouts } from "./run-registry.ts";
 import { startRun } from "./run-lifecycle.ts";
 import { driveChat, driveOnce } from "./drive.ts";
+import { RunEventRecorder } from "./run-events.ts";
 import { withStreamKeepalive } from "./stream-keepalive.ts";
 import type {
   ResolvedRunPlan,
@@ -70,6 +71,8 @@ const userFromScope = (scope: WorkspaceScope): { id: string; name: string } => {
  *  shape that let a turn resolving after a timeout go undisposed (issue #630). */
 type RunState = {
   messages: PlatypusUIMessage[];
+  /** A headless run's final assistant text, once the drive has it (#647). */
+  finalText?: string;
 };
 
 /**
@@ -142,6 +145,8 @@ export class AgentRunner {
     origin?: string;
     frontendUrl?: string;
     timeouts?: RunTimeouts;
+    /** The run's Run event recorder, for a headless run that keeps one. */
+    events?: RunEventRecorder;
   }): Promise<{
     state: RunState;
     run: ReturnType<typeof startRun>;
@@ -193,6 +198,7 @@ export class AgentRunner {
             messages: state.messages,
             stats,
             error,
+            finalText: state.finalText,
           });
         } catch (err) {
           logger.error({ err, runId: input.runId }, "Error in onFinish");
@@ -216,6 +222,7 @@ export class AgentRunner {
         runId: input.runId,
         messages: input.messages,
         memorySnapshot: input.memorySnapshot,
+        events: params.events,
       });
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -384,13 +391,18 @@ export class AgentRunner {
   }): Promise<GenerateResult> {
     const { input } = params;
     const options = params.options ?? {};
+    // One Run event recorder per headless run (#647): the sink is handed it at
+    // start and flushes it on its own cadence; the drive fills it, and routes
+    // it down to any Sub-Agent the run delegates to.
+    const events = new RunEventRecorder({ runId: input.runId });
     // No `origin`: headless callers don't have file URLs to inline.
-    const { run, turn, modelMessages, facts } = await this.setup({
+    const { state, run, turn, modelMessages, facts } = await this.setup({
       scope: params.scope,
       input,
       sink: params.sink,
       frontendUrl: options.frontendUrl,
       timeouts: options.timeouts,
+      events,
     });
 
     // The drive computes the stats, records the output-ceiling cutoff, decides
@@ -402,6 +414,12 @@ export class AgentRunner {
       modelMessages,
       run,
       agentId: facts.agentId,
+      events,
+      // Read by the terminal callback `setup` wired, so the sink's final write
+      // persists what the run concluded.
+      onFinal: (finalText) => {
+        state.finalText = finalText;
+      },
     });
 
     return { text, stats };

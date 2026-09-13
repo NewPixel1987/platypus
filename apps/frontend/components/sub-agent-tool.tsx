@@ -7,12 +7,10 @@ import {
   ClockIcon,
   BotIcon,
   XCircleIcon,
-  WrenchIcon,
-  BrainIcon,
-  PenLineIcon,
 } from "lucide-react";
 import type { ToolUIPart } from "ai";
 import { Badge } from "@/components/ui/badge";
+import { ActivityRow, type ActivityRowEntry } from "./activity-row";
 import { TurnNotice } from "./turn-notice";
 import {
   Collapsible,
@@ -29,7 +27,6 @@ import { Shimmer } from "./ai-elements/shimmer";
 import { ToolDuration } from "./tool-duration";
 import { toolCallDurationMs } from "@/lib/tool-duration";
 import { useMemo, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
 
 type SubAgentActivityEntry = {
   type: "tool-call" | "thinking" | "generating" | "failed";
@@ -131,7 +128,24 @@ const subAgentNameOf = (toolPart: ToolUIPart): string => {
   return target?.trim() || "Sub-Agent";
 };
 
-type CompactEntry = SubAgentActivityEntry & { count?: number };
+/**
+ * A streamed activity entry in the shape the shared row draws. The yielded
+ * vocabulary predates Run events and is stored on every Chat that ever
+ * delegated, so it is translated here rather than rewritten: `thinking` is a
+ * reasoning stretch and `generating` a text stretch; `failed` — the delegation
+ * itself failing — the row still knows how to draw.
+ */
+const toRowEntry = (entry: SubAgentActivityEntry): ActivityRowEntry => ({
+  type:
+    entry.type === "thinking"
+      ? "reasoning"
+      : entry.type === "generating"
+        ? "text"
+        : entry.type,
+  toolName: entry.toolName,
+  status: entry.status,
+  error: entry.error,
+});
 
 /**
  * Folds consecutive completed entries with the same type and toolName into a
@@ -139,10 +153,13 @@ type CompactEntry = SubAgentActivityEntry & { count?: number };
  * are never folded — a trailing running entry that matches the preceding
  * completed streak stays on its own line.
  */
-const compactEntries = (entries: SubAgentActivityEntry[]): CompactEntry[] => {
-  const result: CompactEntry[] = [];
+const compactEntries = (
+  entries: SubAgentActivityEntry[],
+): ActivityRowEntry[] => {
+  const result: ActivityRowEntry[] = [];
 
-  for (const entry of entries) {
+  for (const raw of entries) {
+    const entry = toRowEntry(raw);
     const prev = result[result.length - 1];
     if (
       prev &&
@@ -158,79 +175,6 @@ const compactEntries = (entries: SubAgentActivityEntry[]): CompactEntry[] => {
   }
 
   return result;
-};
-
-const entryConfig: Record<
-  SubAgentActivityEntry["type"],
-  { icon: LucideIcon; activeColor: string; label: (e: CompactEntry) => string }
-> = {
-  "tool-call": {
-    icon: WrenchIcon,
-    activeColor: "text-blue-500",
-    label: (e) => e.toolName ?? "tool",
-  },
-  thinking: {
-    icon: BrainIcon,
-    activeColor: "text-purple-500",
-    label: () => "Thinking\u2026",
-  },
-  generating: {
-    icon: PenLineIcon,
-    activeColor: "text-amber-500",
-    label: () => "Generating response\u2026",
-  },
-  failed: {
-    icon: XCircleIcon,
-    activeColor: "text-red-500",
-    label: () => "Run failed",
-  },
-};
-
-const ActivityEntry = ({ entry }: { entry: CompactEntry }) => {
-  const { icon: Icon, activeColor, label } = entryConfig[entry.type];
-  const isRunning = entry.status === "running";
-
-  return (
-    <div className="flex flex-col gap-0.5 py-1">
-      <div className="flex items-center gap-2 text-sm">
-        <Icon
-          className={cn(
-            "size-3.5 shrink-0",
-            isRunning
-              ? `${activeColor} animate-pulse`
-              : entry.status === "error"
-                ? "text-red-500"
-                : "text-muted-foreground",
-          )}
-        />
-        <span className="text-muted-foreground">
-          {label(entry)}
-          {entry.count && entry.count > 1 && (
-            <span className="ml-1 text-xs text-muted-foreground/70">
-              &times;{entry.count}
-            </span>
-          )}
-        </span>
-        {isRunning ? (
-          <Badge
-            variant="secondary"
-            className="rounded-full text-[10px] px-1.5 py-0"
-          >
-            running
-          </Badge>
-        ) : entry.status === "error" ? (
-          <XCircleIcon className="size-3.5 shrink-0 text-red-600" />
-        ) : (
-          <CheckCircleIcon className="size-3.5 shrink-0 text-green-600" />
-        )}
-      </div>
-      {entry.error && (
-        <span className="ml-5.5 text-xs text-red-600 truncate">
-          {entry.error}
-        </span>
-      )}
-    </div>
-  );
 };
 
 /**
@@ -360,7 +304,7 @@ export const SubAgentTool = ({
                 Activity
               </h4>
               {compacted.map((entry, i) => (
-                <ActivityEntry key={i} entry={entry} />
+                <ActivityRow key={i} entry={entry} />
               ))}
             </div>
             {responseText ? (

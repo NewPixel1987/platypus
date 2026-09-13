@@ -4,6 +4,7 @@ import {
   unique,
   uniqueIndex,
   customType,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // Import and re-export auth schema
@@ -728,7 +729,7 @@ export const triggerRun = pgTable(
       .text("trigger_id")
       .notNull()
       .references(() => trigger.id, { onDelete: "cascade" }),
-    // pending | running | success | failed | suppressed
+    // pending | running | success | failed | cancelled | suppressed
     status: t.text("status").notNull().default("pending"),
     eventType: t.text("event_type"),
     eventData: t.jsonb("event_data"),
@@ -742,6 +743,14 @@ export const triggerRun = pgTable(
     completedAt: t.timestamp("completed_at"),
     errorMessage: t.text("error_message"),
     stats: t.jsonb("stats"),
+    // The final assistant text — "what did it conclude" — one value per run
+    // (#647, ADR-0023). Null until the run has one, and for ever on runs that
+    // predate the column or ended before answering. The runs LIST never
+    // selects it; only the run detail does.
+    finalText: t.text("final_text"),
+    // The run's timeline hit the per-run event ceiling, so `trigger_run_event`
+    // holds a prefix of what happened rather than all of it.
+    eventsTruncated: t.boolean("events_truncated").notNull().default(false),
     createdAt: t.timestamp("created_at").notNull().defaultNow(),
   }),
   (t) => [
@@ -845,6 +854,63 @@ export const kanbanCard = pgTable(
     index("idx_kanban_card_due_date").on(t.dueDate),
     index("idx_kanban_card_priority").on(t.priority),
     index("idx_kanban_card_column_position").on(t.columnId, t.position),
+  ],
+);
+
+/**
+ * A **Run event**: one thing that happened during a Trigger run — a tool call,
+ * a stretch of reasoning, a stretch of text, or a delegation — with when it
+ * started, how long it took and how it ended, and never what it said (#647,
+ * ADR-0023). Together, a run's rows are its **Run timeline**.
+ *
+ * A table rather than a JSONB column on the run because of concurrency: a run
+ * that fans out to parallel Sub-Agents has several delegates appending to one
+ * timeline at once, and a read-modify-write on a shared array loses updates.
+ * Independent inserts make that the database's problem.
+ *
+ * Every event keys to the ROOT run, however deep the delegation it belongs to,
+ * so the run's cascade — and with it Max Runs to Keep retention — removes the
+ * whole timeline. Nesting is the self-referencing `parentEventId`: null for an
+ * event of the root run, the `delegate` event's id for an event of that
+ * delegate's run. Delegates get no run record of their own.
+ */
+export const triggerRunEvent = pgTable(
+  "trigger_run_event",
+  (t) => ({
+    id: t.text("id").primaryKey(),
+    runId: t
+      .text("run_id")
+      .notNull()
+      .references(() => triggerRun.id, { onDelete: "cascade" }),
+    parentEventId: t
+      .text("parent_event_id")
+      .references((): AnyPgColumn => triggerRunEvent.id, {
+        onDelete: "cascade",
+      }),
+    // Monotonic insertion order within the run, for incremental polling.
+    // Display order is `startedAt`, so parallel tool calls read as overlapping.
+    seq: t.integer("seq").notNull(),
+    // tool-call | reasoning | text | delegate
+    type: t.text("type").notNull(),
+    toolName: t.text("tool_name"),
+    // An absolute wall-clock instant in epoch milliseconds — not an offset from
+    // the run's start, so it correlates with logs and a delegate's events need
+    // no rebasing. Stored as the number the recorder measured.
+    startedAt: t.bigint("started_at", { mode: "number" }).notNull(),
+    // Measured on a monotonic clock, never as a difference of two wall-clock
+    // reads. Null while the event is open — and for ever on an event the
+    // stuck-run sweep closed, whose end nobody saw.
+    durationMs: t.integer("duration_ms"),
+    // running | completed | error | cancelled
+    status: t.text("status").notNull(),
+    // `{ message, truncated, originalBytes }` — the one content a Run event
+    // carries, capped at 1 KB on a character boundary. Null unless it failed.
+    error: t.jsonb("error"),
+    childrenTruncated: t.boolean("children_truncated").notNull().default(false),
+  }),
+  (t) => [
+    // The detail read: one run's events, incrementally past a sequence number.
+    index("idx_trigger_run_event_run_id_seq").on(t.runId, t.seq),
   ],
 );
 

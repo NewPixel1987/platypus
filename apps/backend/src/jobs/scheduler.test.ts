@@ -13,6 +13,7 @@ import type { SQL } from "drizzle-orm";
 const { mockDb, mockLogger } = vi.hoisted(() => ({
   mockDb: {
     update: vi.fn(),
+    select: vi.fn(),
   },
   mockLogger: {
     info: vi.fn(),
@@ -25,8 +26,16 @@ const { mockDb, mockLogger } = vi.hoisted(() => ({
 vi.mock("../index.ts", () => ({ db: mockDb }));
 vi.mock("../logger.ts", () => ({ logger: mockLogger }));
 
-import { recoverStuckChats, stuckChatCutoff } from "./scheduler.ts";
-import { chat as chatTable } from "../db/schema.ts";
+import {
+  recoverStuckChats,
+  recoverStuckTriggers,
+  stuckChatCutoff,
+} from "./scheduler.ts";
+import {
+  chat as chatTable,
+  triggerRun as triggerRunTable,
+  triggerRunEvent as triggerRunEventTable,
+} from "../db/schema.ts";
 
 const dialect = new PgDialect();
 
@@ -164,5 +173,88 @@ describe("recoverStuckChats", () => {
     await recoverStuckChats();
 
     expect(mockDb.update).toHaveBeenCalledWith(chatTable);
+  });
+});
+
+/**
+ * The Trigger sweep's half of "no terminal run leaves an open event" (#647).
+ * Rendered the same way as the Chat sweep above: the behaviour is the
+ * predicate, so the predicate is what is pinned.
+ */
+describe("recoverStuckTriggers", () => {
+  type Captured = { table: unknown; set: Record<string, unknown>; where?: SQL };
+
+  /**
+   * Records every update chain in order. The run-row update ends in
+   * `.returning()`; the event update is awaited straight off `.where()`, so
+   * the object `where` hands back is both thenable and has `returning`.
+   */
+  const captureUpdates = (orphaned: unknown[]) => {
+    const captured: Captured[] = [];
+    mockDb.update.mockImplementation((table: unknown) => ({
+      set: (values: Record<string, unknown>) => {
+        const entry: Captured = { table, set: values };
+        captured.push(entry);
+        return {
+          where: (predicate: SQL) => {
+            entry.where = predicate;
+            return {
+              returning: () => Promise.resolve(orphaned),
+              then: (
+                resolve: (v: unknown) => unknown,
+                reject?: (e: unknown) => unknown,
+              ) => Promise.resolve(undefined).then(resolve, reject),
+            };
+          },
+        };
+      },
+    }));
+    // The follow-up read of cron triggers whose schedule needs recomputing:
+    // nothing to recompute in these tests.
+    mockDb.select.mockReturnValue({
+      from: () => ({ where: () => Promise.resolve([]) }),
+    });
+    return captured;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-30T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("closes the orphaned runs' still-open events as errors, with no duration", async () => {
+    const captured = captureUpdates([
+      { id: "run-1", triggerId: "t1" },
+      { id: "run-2", triggerId: "t2" },
+    ]);
+
+    await recoverStuckTriggers();
+
+    expect(captured.map((c) => c.table)).toEqual([
+      triggerRunTable,
+      triggerRunEventTable,
+    ]);
+    const events = captured[1];
+    // Status only. A duration would claim to know when the event ended, and
+    // the whole point of this path is that nobody does.
+    expect(events.set).toEqual({ status: "error" });
+    const { sql: text, params } = render(events.where);
+    expect(text).toBe(
+      `("trigger_run_event"."run_id" in ($1, $2) and "trigger_run_event"."status" = $3)`,
+    );
+    expect(params).toEqual(["run-1", "run-2", "running"]);
+  });
+
+  it("touches no events when no run was orphaned", async () => {
+    const captured = captureUpdates([]);
+
+    await recoverStuckTriggers();
+
+    expect(captured.map((c) => c.table)).toEqual([triggerRunTable]);
   });
 });

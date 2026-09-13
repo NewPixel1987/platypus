@@ -8,6 +8,8 @@ vi.mock("../logger.ts", () => ({
 }));
 
 import { startRun } from "./run-lifecycle.ts";
+import { driveOnce } from "./drive.ts";
+import { RunEventRecorder } from "./run-events.ts";
 import { runRegistry, type RunHandle } from "./run-registry.ts";
 import { wrapToolsWithActivity } from "../services/tool-activity.ts";
 import {
@@ -226,5 +228,146 @@ describe("a delegated run inside a parent run", () => {
 
     registerSpy.mockRestore();
     await parent.finish("succeeded");
+  });
+});
+/**
+ * The observability hole #647 exists to close: a headless run that delegates
+ * used to record nothing about the delegate. Composed the way a Trigger run
+ * is — the headless drive over a plan whose one tool is `delegate` — so the
+ * nesting is tested where it is decided, not by inspecting a recorder the
+ * test filled itself.
+ */
+describe("a delegated run's Run events", () => {
+  const delegateCall = (
+    id: string,
+    subAgent: string,
+  ): LanguageModelV3StreamPart[] => [
+    { type: "tool-input-start", id, toolName: DELEGATE_TOOL_NAME },
+    { type: "tool-input-end", id },
+    {
+      type: "tool-call",
+      toolCallId: id,
+      toolName: DELEGATE_TOOL_NAME,
+      input: JSON.stringify({ subAgent, task: `Task for ${subAgent}` }),
+    },
+  ];
+
+  /** A delegate that runs one `work` tool call, then answers. */
+  const workingDelegate = (id: string, name: string) =>
+    createSubAgentDelegate({
+      id,
+      name,
+      plan: {
+        model: modelOf(
+          stream(
+            [
+              { type: "tool-input-start", id: "w1", toolName: "work" },
+              { type: "tool-input-end", id: "w1" },
+              {
+                type: "tool-call",
+                toolCallId: "w1",
+                toolName: "work",
+                input: "{}",
+              },
+            ],
+            "tool-calls",
+          ),
+          stream([
+            { type: "text-start", id: "t1" },
+            { type: "text-delta", id: "t1", delta: `${name} done.` },
+            { type: "text-end", id: "t1" },
+          ]),
+        ),
+        maxSteps: DEFAULT_AGENT_MAX_STEPS,
+      },
+      loadTools: () =>
+        Promise.resolve({
+          tools: {
+            work: {
+              inputSchema: z.object({}),
+              execute: async () => {
+                await sleep(15);
+                return "worked";
+              },
+            },
+          },
+          readOnlyToolNames: new Set(),
+        }),
+      parentRun: { runId: "parent", scope: parentScope },
+    });
+
+  it("nests the delegate's events beneath the parent's delegate event, and loses none across parallel delegates", async () => {
+    const outcomes: RunStatus[] = [];
+    const parent = startRun({
+      runId: `parent-${Math.random().toString(36).slice(2)}`,
+      onTerminate: ({ status }) => {
+        outcomes.push(status);
+      },
+    });
+    const events = new RunEventRecorder({ runId: parent.handle.runId });
+
+    const tool = createDelegateTool([
+      workingDelegate("sa-a", "Alpha"),
+      workingDelegate("sa-b", "Beta"),
+    ]);
+
+    await driveOnce({
+      plan: {
+        model: modelOf(
+          stream(
+            [...delegateCall("d1", "Alpha"), ...delegateCall("d2", "Beta")],
+            "tool-calls",
+          ),
+          stream([
+            { type: "text-start", id: "p1" },
+            { type: "text-delta", id: "p1", delta: "Both done." },
+            { type: "text-end", id: "p1" },
+          ]),
+        ),
+        tools: wrapToolsWithActivity(
+          { [DELEGATE_TOOL_NAME]: tool },
+          parent.onActivity,
+        ),
+        maxSteps: 3,
+      },
+      run: parent,
+      prompt: "Fan out",
+      events,
+    });
+
+    expect(outcomes).toEqual(["succeeded"]);
+
+    const delegates = events.events.filter((e) => e.type === "delegate");
+    expect(delegates.map((d) => [d.toolName, d.status])).toEqual([
+      ["Alpha", "completed"],
+      ["Beta", "completed"],
+    ]);
+
+    // Each delegate's own work hangs off ITS delegate event — the tool call it
+    // made and the text it wrote — and nothing of either is at the root.
+    for (const delegate of delegates) {
+      const children = events.events.filter(
+        (e) => e.parentEventId === delegate.id,
+      );
+      expect(children.map((c) => [c.type, c.toolName, c.status])).toEqual([
+        ["tool-call", "work", "completed"],
+        ["text", null, "completed"],
+      ]);
+      for (const child of children) {
+        expect(child.startedAt).toBeGreaterThanOrEqual(delegate.startedAt);
+      }
+    }
+    const rootEvents = events.events.filter((e) => e.parentEventId === null);
+    expect(rootEvents.map((e) => e.type)).toEqual([
+      "delegate",
+      "delegate",
+      "text",
+    ]);
+
+    // Nothing the delegates saw or said is on the timeline.
+    const serialized = JSON.stringify(events.events);
+    expect(serialized).not.toContain("Task for");
+    expect(serialized).not.toContain("worked");
+    expect(serialized).not.toContain("done.");
   });
 });

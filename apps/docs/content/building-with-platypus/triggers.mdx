@@ -238,7 +238,9 @@ view survives a refresh and can be sent to a colleague as a link:
 
 - **Trigger** — all Triggers, or one of them. **View runs** on a Trigger's
   three-dot menu opens the page already filtered to it.
-- **Status** — all, or one of Success, Failed, Running, Pending, Suppressed.
+- **Status** — all, or one of Success, Failed, Cancelled, Running, Pending,
+  Suppressed. _Cancelled_ is a run someone stopped, not one that failed: it
+  carries no error, and its timeline ends where the stop landed.
 
 The list loads 50 runs at a time; **Load more** fetches the next 50, and goes
 away once a batch comes back short of 50 — the end of the list. It refreshes
@@ -255,6 +257,46 @@ reads at a glance. Instead every run offers a **Copy run id** control. Use it
 when a run fails and you need to find that run's log lines: backend logs are
 keyed by the run id, so copying it here and pasting it into your log query is
 how you cross-reference a failed run against what happened behind the scenes.
+
+### Inspect a run
+
+**View run** on a row opens the run's own page: the same row at the top, then
+the run's **Timeline**, then the **Response** — the final text the Agent
+produced, which is the first thing to read when you want to know what a
+headless run concluded. A _Suppressed_ row has no page to open, because no
+Agent ran.
+
+The timeline answers "where did this run's time go?". It is a waterfall: one
+line per thing the Agent did, laid out against the run's whole span, so a long
+bar is a long wait. Each line is one of four kinds:
+
+- a **tool call**, named for the tool;
+- a stretch of **thinking** (the model's reasoning);
+- a stretch of **generating** (the model writing its answer);
+- a **delegation** to a Sub-Agent, named for that Sub-Agent, with the
+  Sub-Agent's own tool calls and answer indented beneath it.
+
+Tool calls the Agent issued at the same time overlap on the timeline rather
+than following one another, which is how you tell parallel work from a chain
+of sequential calls. A line that ended in an error is ringed red and carries
+the error text — capped at 1 KB and marked _(truncated)_ when cut. A
+sub-millisecond call is still drawn at a minimum width, so it does not vanish.
+
+What a line **never** carries is content: no tool inputs, no tool outputs, no
+reasoning or message text. The timeline records the shape and duration of a
+run, and only that. Debugging _what_ a tool was asked, as opposed to _how long
+it took_ and _whether it failed_, still means reproducing the call in a Chat.
+
+While a run is _Running_ the page refreshes every five seconds, and any
+line still in progress is drawn out to the present moment. Once a run has
+ended, a line that was never seen to finish — typically because the server
+restarted mid-run — reads **Unknown duration** instead of a bar, since nobody
+observed its end.
+
+A run that ran before timelines existed, or that failed before its first step,
+has no timeline; the page says so rather than showing an empty chart. A run
+that recorded an unusually large number of events keeps the first ten
+thousand and marks the point past which later events are missing.
 
 Among the per-run stats, **in / out** are the run's total token counts across
 every step — what the run cost — while **context** is a different quantity: how

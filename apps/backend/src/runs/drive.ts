@@ -1,5 +1,4 @@
 import {
-  generateText,
   readUIMessageStream,
   streamText,
   type InferUIMessageChunk,
@@ -26,6 +25,14 @@ import {
   stoppedAtStepCeiling,
 } from "./stream-error.ts";
 import { applyToolDurations } from "./tool-durations.ts";
+import {
+  eventStatusForRun,
+  recordRunEvents,
+  recordUiChunk,
+  wrapToolsWithRunEvents,
+  type RunEventRecorder,
+  type RunEventScope,
+} from "./run-events.ts";
 import type { RunStats, RunStatus, TurnFacts } from "./types.ts";
 import { normalizeWebToolParts } from "./web-tool-normalize.ts";
 import { withAgentCausation, withChildCausation } from "../event-causation.ts";
@@ -48,8 +55,13 @@ import { withAgentCausation, withChildCausation } from "../event-causation.ts";
  *   stop condition, fails when its stream reports an error (so a crash is never
  *   read as the finding), and yields every snapshot into the caller's activity
  *   log.
- * - `driveOnce` — the headless `generateText` path (Triggers). Unattended by
- *   construction; returns a single answer plus the computed stats.
+ * - `driveOnce` — the headless path (Triggers). Unattended by construction;
+ *   streams to nobody, drains its own stream, and returns a single answer plus
+ *   the computed stats.
+ *
+ * All three run on `streamText`, so one instrumentation surface — the UI
+ * message stream — serves them all (#647): the headless drive and a delegate's
+ * record their **Run events** off the same chunks, through `runs/run-events.ts`.
  *
  * Both streamed drives expose the folded messages as an async iterable plus a
  * `done` outcome, so a caller that must *yield* per snapshot and one that must
@@ -96,6 +108,13 @@ const modelArgs = (
 /** An unattended run gets the no-progress detector; an attended one does not. */
 const detectorFor = (unattended: boolean): NoProgressDetector | null =>
   unattended ? createNoProgressDetector() : null;
+
+/**
+ * The plan with its locally-executed tools wrapped to record Run events under
+ * `scope` — or as it was, for a drive that records none (a Chat turn).
+ */
+const planRecording = (plan: RunPlan, scope: RunEventScope | undefined) =>
+  scope ? { ...plan, tools: wrapToolsWithRunEvents(plan.tools, scope) } : plan;
 
 /** What a streamed drive settled on. */
 export type StreamedDriveResult = {
@@ -225,6 +244,12 @@ export type ChatDriveOptions = DriveBase &
      *  ends. The Chat turn persists these; the sink's terminal write observes
      *  them. */
     onFinal?: (messages: PlatypusUIMessage[]) => void;
+    /**
+     * Where this drive's Run events go, when it records any: a delegate's
+     * scope, opened by the parent's delegation event. A Chat turn passes none
+     * — its message parts remain its record (#647).
+     */
+    events?: RunEventScope;
   };
 
 /** A delegated sub-Agent's drive: the same conversation and step hook, none of
@@ -240,6 +265,8 @@ export type DelegateDriveOptions = DriveBase &
      * issue #668).
      */
     agentId: string;
+    /** The parent's scope for this delegate's events — see `ChatDriveOptions`. */
+    events?: RunEventScope;
   };
 
 /** Where a drive's UI stream goes before it is consumed. A Chat turn tees off a
@@ -273,9 +300,11 @@ const runStreamedDrive = (
     onStepFinish,
     onToolExecutionEnd,
     onFinal,
+    events,
   } = opts;
 
   const noProgress = detectorFor(behavior.unattended);
+  const plan = planRecording(opts.plan, events);
 
   let failure: string | undefined;
   let truncated = false;
@@ -296,7 +325,7 @@ const runStreamedDrive = (
   const driveStartMs = Date.now();
 
   const result = streamText({
-    ...modelArgs(opts, noProgress),
+    ...modelArgs({ ...opts, plan }, noProgress),
     onStepFinish: (step: RunStep) => {
       onStepFinish?.(step);
       run.onStep(step);
@@ -343,7 +372,11 @@ const runStreamedDrive = (
     },
   });
 
-  const consume = split(uiStream);
+  // Recorded before the split, so the delegate's Run events see every chunk
+  // whichever branch is read first, and a Chat turn (no scope) pays nothing.
+  const consume = split(
+    events ? uiStream.pipeThrough(recordRunEvents(events)) : uiStream,
+  );
 
   const snapshots: AsyncIterable<PlatypusUIMessage> = (async function* () {
     try {
@@ -398,6 +431,13 @@ const runStreamedDrive = (
         noProgress,
         failOnStreamError: behavior.failOnStreamError,
       });
+      // This drive's own still-open events end with it — a delegate that
+      // failed mid-answer must not leave a `text` event running under a
+      // `delegate` event that has already errored.
+      events?.recorder.closeOpen(
+        eventStatusForRun(decision.status),
+        events.parentEventId,
+      );
       await run.finish(decision.status, decision.error);
       resolveDone({
         status: decision.status,
@@ -527,16 +567,38 @@ export type DriveOnceOptions = DriveBase &
      * Event Trigger's own writes never re-fire it, at any delegation depth.
      */
     agentId?: string;
+    /**
+     * The run's **Run event** recorder (#647). Everything this drive observes
+     * on its stream is recorded at the root, and the tools it runs carry the
+     * recorder down so a delegate's events nest beneath its `delegate` event.
+     * Absent, nothing is recorded.
+     */
+    events?: RunEventRecorder;
+    /** The final assistant text, right before the run ends — so the sink's
+     *  terminal write can persist it. */
+    onFinal?: (text: string) => void;
   };
 
 /**
- * Drives a headless `generateText` run inside its registered lifecycle.
+ * Drives a headless run inside its registered lifecycle.
  *
  * Returns a single answer and the computed statistics. Headless means
  * unattended, so the no-progress condition is always on. The terminal status and
  * both cutoffs — the output ceiling and the step ceiling — are decided by the
  * same rules the streamed drives apply, and the run is finished before
  * returning.
+ *
+ * On `streamText` rather than `generateText` (#647): the callbacks that tell
+ * model time from tool time exist only on the streaming path, and without them
+ * a step is one opaque block the waterfall cannot open. Nobody reads the
+ * stream, so the drive drains it itself — through the UI message stream, which
+ * is where Run events are read off, and then by awaiting the result's terminal
+ * promises, which is what preserves `generateText`'s rejection on a provider
+ * error with no output. A provider error *after* some output does not reject
+ * — it arrives as an error part and the stream ends normally — so the drive
+ * also reads `onError` and fails the run itself. `failOnStreamError` stays
+ * `false` here as before: that flag is the shared decision function's, and
+ * this drive owns its own failure rather than changing it.
  */
 export const driveOnce = async (
   opts: DriveOnceOptions,
@@ -544,16 +606,50 @@ export const driveOnce = async (
   const { run } = opts;
   const noProgress = detectorFor(true);
   const startTime = Date.now();
+  const scope: RunEventScope | undefined = opts.events
+    ? { recorder: opts.events, parentEventId: null }
+    : undefined;
+  const plan = planRecording(opts.plan, scope);
+  // The first error the stream reported, in a caller-facing sentence.
+  let streamFailure: string | undefined;
 
   try {
-    const result = await withAgentCausation(opts.agentId, () =>
-      generateText({
-        ...modelArgs(opts, noProgress),
+    const result = await withAgentCausation(opts.agentId, async () => {
+      const streamed = streamText({
+        ...modelArgs({ ...opts, plan }, noProgress),
         onStepFinish: (step: RunStep) => run.onStep(step),
-      }),
-    );
+        // The only thing that proves a long-running step is still alive —
+        // same as the streamed drives (issue #552).
+        onChunk: () => {
+          run.onStreamChunk();
+        },
+        onError: ({ error }) => {
+          streamFailure ??= describeSdkError(error);
+        },
+      });
 
-    const stats = computeStats(result as Parameters<typeof computeStats>[0]);
+      // Drained through the UI message stream so the Run events are read off
+      // the same chunks a delegate's are. Nothing else reads it.
+      for await (const chunk of streamed.toUIMessageStream<PlatypusUIMessage>({
+        onError: (error) => formatStreamError(error),
+      })) {
+        if (scope) recordUiChunk(scope, chunk);
+      }
+
+      const [text, finishReason, rawFinishReason, steps, totalUsage] =
+        await Promise.all([
+          streamed.text,
+          streamed.finishReason,
+          streamed.rawFinishReason,
+          streamed.steps,
+          streamed.totalUsage,
+        ]);
+      return { text, finishReason, rawFinishReason, steps, totalUsage };
+    });
+
+    if (streamFailure) throw new Error(streamFailure);
+
+    const stats = computeStats(result);
     if (isTruncatedByTokenLimit(result.finishReason)) {
       stats.truncatedByTokenLimit = true;
     }
@@ -599,10 +695,18 @@ export const driveOnce = async (
       trip ? "Run aborted: no progress" : "Run generate completed",
     );
 
+    opts.onFinal?.(result.text);
     await run.finish(decision.status, decision.error);
     return { text: result.text, stats };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    // What the stream reported outranks what the result's promises rejected
+    // with: a provider that throws before producing anything rejects them
+    // with a generic "no output" error, and the reason is in the report.
+    const err = streamFailure
+      ? new Error(streamFailure)
+      : error instanceof Error
+        ? error
+        : new Error(String(error));
     logger.error(
       { error, runId: run.handle.runId, duration: Date.now() - startTime },
       "Run generate failed",

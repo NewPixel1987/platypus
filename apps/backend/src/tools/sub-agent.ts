@@ -7,6 +7,7 @@ import { driveDelegate, failBeforeDrive } from "../runs/drive.ts";
 import type { RunPlan } from "../runs/run-plan.ts";
 import { runRegistry } from "../runs/run-registry.ts";
 import { describeSdkError } from "../runs/stream-error.ts";
+import { runEventScopeOf, type RunEventScope } from "../runs/run-events.ts";
 import type { ParentRunContext } from "../runs/types.ts";
 import { renderSecurityGuardrails } from "../security-prompt.ts";
 import { actorUserId, workspaceScopeForSubAgent } from "../scope.ts";
@@ -236,7 +237,16 @@ export type SubAgentDelegate = {
   /** Runs one delegation of this sub-agent, streaming its activity log. */
   run: (
     task: string,
-    options: { abortSignal?: AbortSignal },
+    options: {
+      abortSignal?: AbortSignal;
+      /**
+       * Where this delegation's Run events go (#647): the parent run's
+       * recorder and the `delegate` event the parent opened for this call, so
+       * the delegate's tool calls and answer nest beneath it on the parent's
+       * Run timeline. Absent under a Chat, which records none.
+       */
+      events?: RunEventScope;
+    },
   ) => AsyncGenerator<SubAgentActivity>;
 };
 
@@ -287,7 +297,7 @@ export const createSubAgentDelegate = (
     // `toModelOutput`, which sees every yield as a possible tool output.
     run: async function* (
       task,
-      { abortSignal: parentSignal },
+      { abortSignal: parentSignal, events },
     ): AsyncGenerator<SubAgentActivity> {
       // Unique per invocation, not per sub-agent: the same delegate can be
       // called twice in one turn, and two registry entries under one id is a
@@ -397,6 +407,7 @@ export const createSubAgentDelegate = (
             onStepFinish: (step) => {
               rawFinishReason = step.rawFinishReason;
             },
+            events,
           });
           started = { drive };
         } catch (error) {
@@ -552,8 +563,9 @@ export const createDelegateTool = (
     }),
     execute: async function* (
       { subAgent, task },
-      { abortSignal },
+      options,
     ): AsyncGenerator<SubAgentActivity> {
+      const { abortSignal } = options;
       const key = targetKey(subAgent);
       const delegate = byKey.get(key);
 
@@ -572,7 +584,13 @@ export const createDelegateTool = (
         );
       }
 
-      yield* delegate.run(task, { abortSignal });
+      // The parent's drive attached this call's Run event scope to the
+      // options it handed the tool — how a delegate's events nest beneath
+      // the parent's `delegate` event (#647).
+      yield* delegate.run(task, {
+        abortSignal,
+        events: runEventScopeOf(options),
+      });
     },
     toModelOutput: ({ output }) => {
       const value = output?.text ?? "Task completed.";

@@ -1952,6 +1952,7 @@ export const triggerRunStatusSchema = z.enum([
   "running",
   "success",
   "failed",
+  "cancelled",
   "suppressed",
 ]);
 
@@ -1964,13 +1965,15 @@ export type TriggerRunStatus = z.infer<typeof triggerRunStatusSchema>;
  *
  * `suppressed` is not a run that failed: it is a firing the run-rate breaker
  * dropped before it started, so the Trigger did not run against that record at
- * all (see the Operator reference on Triggers).
+ * all (see the Operator reference on Triggers). Nor is `cancelled`: someone
+ * stopped the run, nothing faulted, so it carries no error message (#647).
  */
 export const TRIGGER_RUN_STATUS_LABELS: Record<TriggerRunStatus, string> = {
   pending: "Pending",
   running: "Running",
   success: "Success",
   failed: "Failed",
+  cancelled: "Cancelled",
   suppressed: "Suppressed",
 };
 
@@ -2082,6 +2085,118 @@ export const triggerRunWithTriggerListSchema = z.object({
 
 export type TriggerRunWithTriggerList = z.infer<
   typeof triggerRunWithTriggerListSchema
+>;
+
+// Run events (#647, ADR-0023)
+
+/**
+ * What kind of thing a **Run event** records. Shape only: a tool call, a
+ * stretch of reasoning, a stretch of generated text, or a delegation to a
+ * Sub-Agent (whose own events nest beneath it). There is deliberately no
+ * `step` — the SDK exposes only a step-finish hook, so a step event could not
+ * exist when its children are emitted — and no `failed`: failure is a status.
+ */
+export const runEventTypeSchema = z.enum([
+  "tool-call",
+  "reasoning",
+  "text",
+  "delegate",
+]);
+
+export type RunEventType = z.infer<typeof runEventTypeSchema>;
+
+/**
+ * How a Run event stands. `running` while open; one of the three terminal
+ * values once it ended, or once the run it belongs to ended without it.
+ */
+export const runEventStatusSchema = z.enum([
+  "running",
+  "completed",
+  "error",
+  "cancelled",
+]);
+
+export type RunEventStatus = z.infer<typeof runEventStatusSchema>;
+
+/**
+ * The most of an error string a Run event keeps, in bytes. The one content a
+ * Run event carries at all (ADR-0023); anything longer is stored as a preview
+ * that says so, never silently shortened.
+ */
+export const RUN_EVENT_ERROR_MAX_BYTES = 1024;
+
+/**
+ * A failed event's error, capped. `truncated` is explicit — and `originalBytes`
+ * is kept — so a reader can tell a short error from a clipped one. The preview
+ * is cut on a character boundary, never inside a UTF-8 codepoint.
+ */
+export const runEventErrorSchema = z.object({
+  message: z.string(),
+  truncated: z.boolean(),
+  originalBytes: z.number().int().nonnegative(),
+});
+
+export type RunEventError = z.infer<typeof runEventErrorSchema>;
+
+/**
+ * A durable, timestamped record of one thing that happened during a Trigger
+ * run — see **Run event** in `CONTEXT.md`. Carries what it was, when it
+ * started, how long it took and how it ended; never what it said (ADR-0023).
+ *
+ * `startedAt` is an absolute wall-clock instant in epoch milliseconds, so it
+ * lines up with backend logs and a delegate's events need no rebasing;
+ * `durationMs` comes from a monotonic clock and is absent while the event is
+ * still open. `parentEventId` is null for an event of the root run and the id
+ * of the `delegate` event for an event of that delegate's run. `seq` is the
+ * run's monotonic insertion order, kept for incremental polling; display order
+ * is by `startedAt`.
+ */
+export const runEventSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+  parentEventId: z.string().nullable(),
+  seq: z.number().int().nonnegative(),
+  type: runEventTypeSchema,
+  toolName: z.string().nullable().optional(),
+  startedAt: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative().nullable().optional(),
+  status: runEventStatusSchema,
+  error: runEventErrorSchema.nullable().optional(),
+  /**
+   * Set when the run hit its event ceiling while this event was open, so
+   * children it would have had were dropped. Marked on the node — not only on
+   * the run — so a delegate whose children were dropped does not render as a
+   * delegate that did nothing.
+   */
+  childrenTruncated: z.boolean().optional(),
+});
+
+export type RunEvent = z.infer<typeof runEventSchema>;
+
+/**
+ * A run as its detail page reads it: the list row's shape plus the two fields
+ * the list never selects — the final assistant text, and whether the run's
+ * timeline was cut at the event ceiling.
+ */
+export const triggerRunDetailSchema = triggerRunWithTriggerSchema.extend({
+  finalText: z.string().nullable().optional(),
+  eventsTruncated: z.boolean(),
+});
+
+export type TriggerRunDetail = z.infer<typeof triggerRunDetailSchema>;
+
+/**
+ * The run detail endpoint's response. `events` is the **Run timeline** —
+ * ordered by `seq` on the wire; the renderer orders by start time — and may be
+ * a partial page when the caller asked only for events past a sequence number.
+ */
+export const triggerRunDetailResponseSchema = z.object({
+  run: triggerRunDetailSchema,
+  events: z.array(runEventSchema),
+});
+
+export type TriggerRunDetailResponse = z.infer<
+  typeof triggerRunDetailResponseSchema
 >;
 
 // Notification

@@ -4,6 +4,7 @@ import {
   chat as chatTable,
   trigger as triggerTable,
   triggerRun as triggerRunTable,
+  triggerRunEvent as triggerRunEventTable,
 } from "../db/schema.ts";
 import {
   executeTrigger,
@@ -264,7 +265,11 @@ function staleCutoff(perRunTimeoutMs: number): Date {
  *
  * 2. `TriggerSink.onStart` writes a `trigger_run` row with status `running`.
  *    A crash leaves that row dangling, which clutters the UI and gives no
- *    indication the run failed.
+ *    indication the run failed. Its Run events (#647) dangle with it: whatever
+ *    was open when the process died is still `running`, so the sweep closes
+ *    them with the run's terminal status — as errors, with no duration, since
+ *    nobody saw them end. The detail page renders that as an unknown duration
+ *    rather than a bar drawn to "now".
  *
  * Critical horizontal-scaling note: a `running` row may still be a peer
  * instance's live work. We must NOT touch rows younger than
@@ -277,7 +282,7 @@ function staleCutoff(perRunTimeoutMs: number): Date {
  * `running` row we just failed. If `nextRunAt IS NULL` but no run row crossed
  * the staleness threshold, a peer is currently executing — leave it alone.
  */
-async function recoverStuckTriggers(): Promise<void> {
+export async function recoverStuckTriggers(): Promise<void> {
   const cutoff = staleCutoff(DEFAULT_PER_RUN_TIMEOUT_MS);
 
   // Mark abandoned running runs as failed. The age cutoff guarantees no
@@ -301,6 +306,22 @@ async function recoverStuckTriggers(): Promise<void> {
     });
 
   if (orphaned.length === 0) return;
+
+  // No terminal run leaves an open event. The sweep is one of the two paths
+  // that end a run without ending its events (cancellation is the other, and
+  // the sink covers that one).
+  await db
+    .update(triggerRunEventTable)
+    .set({ status: "error" })
+    .where(
+      and(
+        inArray(
+          triggerRunEventTable.runId,
+          orphaned.map((r) => r.id),
+        ),
+        eq(triggerRunEventTable.status, "running"),
+      ),
+    );
 
   logger.warn(
     { count: orphaned.length, cutoff: cutoff.toISOString() },
