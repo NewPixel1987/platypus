@@ -67,6 +67,7 @@ import type {
   ParentRunContext,
   ChatTurnRequest,
   ResolvedGeneration,
+  TurnRequest,
 } from "../runs/types.ts";
 import {
   resolveGenerationPlan,
@@ -158,12 +159,18 @@ const initialOccupancyFrom = (
   return nextTurnOccupancy(lastReading);
 };
 
-export type PrepareChatTurnInput = {
+/**
+ * What `prepareChatTurn` needs on top of the turn itself: the tenant and User
+ * the turn runs as, and the ambient facts only the runner knows.
+ *
+ * The turn half is `TurnRequest` whole, carried down from the route unchanged
+ * — this module adds to it rather than re-listing it, so a new turn-level fact
+ * costs no edit here (issue #837).
+ */
+export type PrepareChatTurnInput = TurnRequest & {
   orgId: string;
   workspaceId: string;
   user: { id: string; name: string };
-  request: ChatTurnRequest;
-  messages: PlatypusUIMessage[];
   /**
    * Used to rewrite `storage://` URLs in messages to absolute HTTP URLs so
    * the model can fetch them. Optional for headless callers (triggers,
@@ -184,35 +191,6 @@ export type PrepareChatTurnInput = {
    * as a stalled step.
    */
   onActivity?: (event: ToolActivityEvent) => void;
-  /**
-   * The pinned Memories block (ADR-0020) an interactive Chat turn resolved —
-   * the rendered summaries fragment the renderer consumes verbatim. Passed down
-   * from the Chat route through `RunInput`. Absent for headless runs (no Chat
-   * identity), which resolve the block live instead. `prepareChatTurn` stays a
-   * pure function of its inputs; the renderer never learns about clocks.
-   */
-  memorySnapshot?: string;
-  /**
-   * The moment the caller resolved this turn, anchoring the Memories retrieval
-   * window (ADR-0020). Required, and required precisely so that no caller
-   * silently inherits a clock read from inside turn preparation: the window is
-   * an input. Unused on a pinned interactive turn, which retrieves nothing.
-   */
-  memoriesReferenceDate: Date;
-  /**
-   * Whether this run composes a Memories block at all. Absent means yes, which
-   * is what every interactive Chat turn relies on. `false` is the Trigger
-   * opt-out (#645): the retrieval is not issued and no `<memories>` fragment is
-   * composed, so a headless run's prompt does not drift with interactive-chat
-   * activity that has nothing to do with it.
-   *
-   * Beats `memorySnapshot` where a caller supplies both: this decides *whether*
-   * a block is composed, the pin only decides *what* is in it.
-   *
-   * Orthogonal to the `memory` tool set: an Agent holding `memorySearch` /
-   * `memoryGet` keeps them and can still retrieve deliberately.
-   */
-  includeMemories?: boolean;
   /**
    * The run this turn belongs to. Sub-agent delegate tools built here register
    * their own runs as children of it, so a delegated run is cancellable and
@@ -820,9 +798,7 @@ export const prepareChatTurn = async (
  * file-rejection behavior, it never preempts existing error handling.
  */
 export const validateTurnAttachments = async (
-  args: {
-    request: ChatTurnRequest;
-    messages: PlatypusUIMessage[];
+  args: Pick<TurnRequest, "request" | "messages"> & {
     orgId: string;
     workspaceId: string;
   },

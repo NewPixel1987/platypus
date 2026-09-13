@@ -869,7 +869,7 @@ describe("driveChat", () => {
     const drive = driveChat({
       plan,
       run,
-      agentId: "agent-7",
+      facts: { agentId: "agent-7" },
       modelMessages: [{ role: "user", content: "hi" }],
     });
     for await (const _ of drive.snapshots) void _;

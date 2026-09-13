@@ -26,7 +26,7 @@ import {
   stoppedAtStepCeiling,
 } from "./stream-error.ts";
 import { applyToolDurations } from "./tool-durations.ts";
-import type { RunStats, RunStatus } from "./types.ts";
+import type { RunStats, RunStatus, TurnFacts } from "./types.ts";
 import { normalizeWebToolParts } from "./web-tool-normalize.ts";
 import { withAgentCausation, withChildCausation } from "../event-causation.ts";
 
@@ -204,19 +204,13 @@ export type ChatDriveOptions = DriveBase &
   DriveConversation & {
     /** The opening messages a Chat turn folds its streamed answer onto. */
     originalMessages?: PlatypusUIMessage[];
-    /** The resolved Agent id, stamped onto the streamed message. */
-    agentId?: string;
     /**
-     * Turn resolution served no search tools for a turn that asked for search,
-     * so the reply is written without it (issue #522). A setup-time fact on the
-     * same path `agentId` takes: stamped onto the streamed message's metadata,
-     * never onto the prompt.
+     * What Turn resolution decided before this drive existed. Relayed whole to
+     * the metadata extractor, which stamps it onto the streamed message; the
+     * drive itself reads only `agentId`, for the causation chain. Absent for a
+     * drive with no resolved turn behind it (a delegated sub-Agent).
      */
-    searchUnavailable?: boolean;
-    /** How long Turn resolution took, in whole milliseconds, before this drive
-     *  was reached. Stamped onto the streamed message's metadata; absent for a
-     *  drive that never measured one. */
-    prepDurationMs?: number;
+    facts?: TurnFacts;
     generateMessageId?: () => string;
     /** The live map the caller fills from `onToolExecutionEnd`. */
     toolDurations?: Map<string, number>;
@@ -273,9 +267,7 @@ const runStreamedDrive = (
   const {
     run,
     originalMessages = [],
-    agentId,
-    searchUnavailable,
-    prepDurationMs,
+    facts,
     generateMessageId,
     toolDurations,
     onStepFinish,
@@ -323,14 +315,12 @@ const runStreamedDrive = (
     originalMessages,
     generateMessageId,
     messageMetadata: createMessageMetadata({
-      agentId,
+      ...facts,
       toolDurations,
-      searchUnavailable,
       // The ceiling the invocation's step-count stop condition is built from.
       // The extractor sees the terminal finish reason but has no other way to
       // know whether the loop was stopped or the model was done.
       stepCeiling: opts.plan.maxSteps,
-      prepDurationMs,
       driveStartMs,
       isClearableTool: (toolName) =>
         isClearableToolName(
@@ -481,7 +471,7 @@ export const driveChat = (opts: ChatDriveOptions): ChatDrive => {
   // The turn's Agent is what caused any write it makes; a direct (no-Agent)
   // turn establishes no causation and so never suppresses an Event Trigger
   // (ADR-0022).
-  const core = withAgentCausation(opts.agentId, () =>
+  const core = withAgentCausation(opts.facts?.agentId, () =>
     runStreamedDrive(
       opts,
       {

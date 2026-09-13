@@ -6,6 +6,7 @@ import {
 } from "./stream-error.ts";
 import { pickCachedInput } from "./run-stats.ts";
 import type { ChatMessageMetadata } from "../types.ts";
+import type { TurnFacts } from "./types.ts";
 
 /**
  * Builds the `messageMetadata` extractor `toUIMessageStream` calls for every
@@ -30,15 +31,13 @@ import type { ChatMessageMetadata } from "../types.ts";
  * It is read rather than copied: this extractor runs per part, and each read
  * happens after the entry it wants has been written.
  *
- * `searchUnavailable` is a setup-time fact like `agentId` — Turn resolution
- * decided it before the stream existed — and rides `start` for a second reason
- * besides: an aborted run never emits a `finish` part, and a turn cancelled
- * halfway should still say it ran without the search it was promised.
- *
- * The setup-time facts arrive as one object rather than as positional
- * arguments: `agentId` and `searchUnavailable` travel together at every hop
- * from Turn resolution to here, and the next such fact should not have to
- * become a fourth position that call sites read as a bare `true`.
+ * The setup-time facts arrive as `TurnFacts`, the same shape the runner built
+ * and the drive relayed: `agentId`, `searchUnavailable` and `prepDurationMs`
+ * travel together at every hop from Turn resolution to here, so the next such
+ * fact is added to that type and read here, with no hop in between to edit.
+ * `searchUnavailable` rides `start` for a second reason besides: an aborted run
+ * never emits a `finish` part, and a turn cancelled halfway should still say it
+ * ran without the search it was promised.
  *
  * `prepDurationMs` and `driveStartMs` are the same kind of setup-time fact,
  * for the two-phase wall clock issue #354 adds: Turn resolution has already
@@ -47,13 +46,9 @@ import type { ChatMessageMetadata } from "../types.ts";
  * it has not happened yet, so only the moment it began does, and each
  * `finish-step` computes the elapsed time from it.
  */
-export type MessageMetadataFacts = {
-  /** The resolved Agent id, absent on a turn that resolved no Agent. */
-  agentId?: string;
+export type MessageMetadataFacts = TurnFacts & {
   /** The live map the runner fills from `onToolExecutionEnd`. */
   toolDurations?: ReadonlyMap<string, number>;
-  /** Turn resolution served no search tools for a turn that asked for search. */
-  searchUnavailable?: boolean;
   /**
    * The turn's resolved **Step ceiling** — the same figure the loop's step-count
    * stop condition is built from. Needed here because the terminal finish reason
@@ -65,9 +60,6 @@ export type MessageMetadataFacts = {
    * the drive reads it off the plan it is about to invoke.
    */
   stepCeiling?: number;
-  /** How long Turn resolution took, in whole milliseconds. Absent for a drive
-   *  (e.g. a delegated sub-Agent) that never measured one. */
-  prepDurationMs?: number;
   /** When the model request was sent, on the same clock as `now`. `modelDurationMs`
    *  is the elapsed time from here, recomputed on every `finish-step`. */
   driveStartMs?: number;

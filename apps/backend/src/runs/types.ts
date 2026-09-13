@@ -97,12 +97,19 @@ export type RunStats = {
 } & CachedInputTokens;
 
 /**
- * Inputs for a single run. `request` is the same shape `prepareChatTurn`
- * expects: agent or direct provider/model selection, plus optional
- * generation overrides (temperature, topP, seed, etc.) and search flag.
+ * Everything a caller says about the Chat turn it wants run, declared once and
+ * carried unchanged from the route to `prepareChatTurn`.
+ *
+ * Every hop between those two ends relays this shape whole rather than
+ * re-listing its fields, so a new turn-level fact is added here, at the
+ * producer that supplies it and at the consumer that reads it — and nowhere in
+ * between (issue #837).
+ *
+ * Lives here, beside `ChatTurnRequest`, so `runs/` never imports a type from
+ * `services/`: `services/chat-execution.ts` builds `PrepareChatTurnInput` from
+ * this shape by importing it back.
  */
-export type RunInput = {
-  runId: RunId;
+export type TurnRequest = {
   request: ChatTurnRequest;
   messages: PlatypusUIMessage[];
   /**
@@ -110,6 +117,9 @@ export type RunInput = {
    * the rendered summaries fragment, reused or re-taken by the Chat route
    * against the re-pin horizon. Absent for headless runs (triggers, sub-Agents),
    * which carry no Chat identity and so take the live block instead.
+   *
+   * Turn preparation stays a pure function of its inputs; the renderer never
+   * learns about clocks.
    */
   memorySnapshot?: string;
   /**
@@ -118,6 +128,9 @@ export type RunInput = {
    * turn preparation, so two runs given the same reference date render a
    * byte-identical prefix. An interactive Chat passes the moment it resolved
    * its pin; a headless run passes its own resolution moment.
+   *
+   * Unused on a pinned interactive turn, which retrieves nothing: a supplied
+   * `memorySnapshot` is rendered verbatim rather than re-retrieved.
    */
   memoriesReferenceDate: Date;
   /**
@@ -125,8 +138,47 @@ export type RunInput = {
    * A Trigger forwards its own opt-out here, exactly as it forwards `search`,
    * so turn preparation decides from its inputs rather than re-reading the
    * Trigger row.
+   *
+   * Beats `memorySnapshot` where a caller supplies both: this decides *whether*
+   * a block is composed, the pin only decides *what* is in it.
+   *
+   * Orthogonal to the `memory` tool set: an Agent holding `memorySearch` /
+   * `memoryGet` keeps them and can still retrieve deliberately.
    */
   includeMemories?: boolean;
+};
+
+/**
+ * Inputs for a single run: the turn the caller wants run, plus the id the run
+ * is registered and cancelled under.
+ */
+export type RunInput = {
+  runId: RunId;
+} & TurnRequest;
+
+/**
+ * What Turn resolution decided about a turn before its model stream existed,
+ * carried unchanged from the runner through the drive to the metadata
+ * extractor that stamps it onto the streamed message.
+ *
+ * One shape rather than three sibling arguments repeated at each hop: these
+ * facts travel together the whole way, and the next one should not have to be
+ * threaded through `driveChat` and `createMessageMetadata` by hand (issue
+ * #837). None is ever told to the model.
+ */
+export type TurnFacts = {
+  /** The resolved Agent id, absent on a turn that resolved no Agent. */
+  agentId?: string;
+  /**
+   * Turn resolution served no search tools for a turn that asked for search,
+   * so the reply is written without it (issue #522).
+   */
+  searchUnavailable?: boolean;
+  /**
+   * How long Turn resolution took, in whole milliseconds. Absent for a drive
+   * (e.g. a delegated sub-Agent) that never measured one.
+   */
+  prepDurationMs?: number;
 };
 
 /**

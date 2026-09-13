@@ -23,6 +23,7 @@ import type {
   RunInput,
   RunSink,
   RunStats,
+  TurnFacts,
 } from "./types.ts";
 
 export type StreamOptions = {
@@ -96,15 +97,15 @@ export class AgentRunner {
     timeouts: RunTimeouts | undefined,
     onActivity: (event: ToolActivityEvent) => void,
   ): Promise<ChatTurn> {
+    // The turn rides down whole; the runner adds only what it is the one to
+    // know. `runId` is the run's own identity, not the turn's, so it is the
+    // single field held back (issue #837).
+    const { runId, ...turnRequest } = input;
     return prepareChatTurn({
+      ...turnRequest,
       orgId: scope.orgId,
       workspaceId: scope.workspaceId,
       user: userFromScope(scope),
-      request: input.request,
-      messages: input.messages,
-      memorySnapshot: input.memorySnapshot,
-      memoriesReferenceDate: input.memoriesReferenceDate,
-      includeMemories: input.includeMemories,
       origin,
       frontendUrl,
       runMode: scope.principal.kind === "user" ? "interactive" : "headless",
@@ -112,7 +113,7 @@ export class AgentRunner {
       // Sub-agent delegate tools built for this turn register their own runs
       // as children of this one, so they need to know whose child they are and
       // what bounds this run was started under.
-      run: { runId: input.runId, scope, timeouts },
+      run: { runId, scope, timeouts },
     });
   }
 
@@ -149,10 +150,11 @@ export class AgentRunner {
      *  for the terminal callback that may run before it is assigned. */
     turn: ChatTurn;
     modelMessages: ModelMessage[];
-    /** How long this setup — Turn resolution (`CONTEXT.md`) — took, in whole
-     *  milliseconds. Surfaced to Users as "Preparation" once stamped onto the
-     *  streamed message (issue #354). */
-    prepDurationMs: number;
+    /** What this setup decided, in the shape the drive and the metadata
+     *  extractor both take. `prepDurationMs` is how long Turn resolution
+     *  (`CONTEXT.md`) took, in whole milliseconds — surfaced to Users as
+     *  "Preparation" once stamped onto the streamed message (issue #354). */
+    facts: TurnFacts;
   }> {
     const { scope, input, sink } = params;
     const prepStartMs = Date.now();
@@ -277,7 +279,11 @@ export class AgentRunner {
       run,
       turn,
       modelMessages,
-      prepDurationMs: Date.now() - prepStartMs,
+      facts: {
+        agentId: turn.resolved.agentId,
+        searchUnavailable: turn.searchUnavailable,
+        prepDurationMs: Date.now() - prepStartMs,
+      },
     };
   }
 
@@ -288,15 +294,14 @@ export class AgentRunner {
     options: StreamOptions;
   }): Promise<Response> {
     const { input, options } = params;
-    const { state, run, turn, modelMessages, prepDurationMs } =
-      await this.setup({
-        scope: params.scope,
-        input,
-        sink: params.sink,
-        origin: options.origin,
-        frontendUrl: options.frontendUrl,
-        timeouts: options.timeouts,
-      });
+    const { state, run, turn, modelMessages, facts } = await this.setup({
+      scope: params.scope,
+      input,
+      sink: params.sink,
+      origin: options.origin,
+      frontendUrl: options.frontendUrl,
+      timeouts: options.timeouts,
+    });
 
     logger.debug(
       { systemPrompt: turn.stream.system },
@@ -319,9 +324,7 @@ export class AgentRunner {
       modelMessages,
       run,
       originalMessages: input.messages,
-      agentId: turn.resolved.agentId,
-      searchUnavailable: turn.searchUnavailable,
-      prepDurationMs,
+      facts,
       generateMessageId: createIdGenerator({ prefix: "msg", size: 16 }),
       toolDurations,
       onToolExecutionEnd: ({ toolCall, toolExecutionMs }) => {
@@ -382,7 +385,7 @@ export class AgentRunner {
     const { input } = params;
     const options = params.options ?? {};
     // No `origin`: headless callers don't have file URLs to inline.
-    const { run, turn, modelMessages } = await this.setup({
+    const { run, turn, modelMessages, facts } = await this.setup({
       scope: params.scope,
       input,
       sink: params.sink,
@@ -398,7 +401,7 @@ export class AgentRunner {
       plan: turn.stream,
       modelMessages,
       run,
-      agentId: turn.resolved.agentId,
+      agentId: facts.agentId,
     });
 
     return { text, stats };
