@@ -211,6 +211,14 @@ const useTool = () => {
 export const toolRowClassName =
   "flex w-full min-w-0 items-center gap-2 text-left text-muted-foreground text-sm";
 
+/**
+ * The slot a row's icon sits in: the same width as the assistant avatar
+ * (`size-6`), so the text after it lines up with the chat text beside the
+ * avatar, whichever of the two a reader is looking at.
+ */
+export const toolRowIconSlotClassName =
+  "flex size-6 shrink-0 items-center justify-center";
+
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
 /**
@@ -237,7 +245,7 @@ export const Tool = ({
   return (
     <ToolContext.Provider value={{ isOpen }}>
       <Collapsible
-        className={cn("not-prose mb-4 w-full min-w-0", className)}
+        className={cn("not-prose w-full min-w-0", className)}
         open={isOpen}
         onOpenChange={setIsOpen}
         {...props}
@@ -348,20 +356,19 @@ export const ToolHeader = ({
       )}
       {...props}
     >
-      {createElement(getToolIcon(type), { className: "size-4 shrink-0" })}
+      <span className={toolRowIconSlotClassName}>
+        {createElement(getToolIcon(type), { className: "size-4" })}
+      </span>
       {/* `min-w-0` + `truncate` lets a long MCP name give way instead of
-      pushing the row wide (issue #691); the full name rides on `title`. */}
+      pushing the row wide (issue #691); the full name rides on `title`. No
+      `flex-1`: the duration, status and chevron follow the name rather than
+      sitting at the row's far edge. */}
       <span
-        className="min-w-0 flex-1 truncate font-medium text-foreground select-text"
+        className="min-w-0 truncate select-text"
         title={label ? `${name} — ${label}` : name}
       >
         {name}
-        {label && (
-          <span className="font-normal text-muted-foreground">
-            {" "}
-            &mdash; {label}
-          </span>
-        )}
+        {label && <span> &mdash; {label}</span>}
       </span>
       <ToolDuration durationMs={durationMs} />
       {cleared && state === "output-available" && <ClearedResultBadge />}
@@ -381,10 +388,11 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      // Indented under the row's icon, the way Thinking's body sits under its
-      // brain. Sections stack with a gap rather than rules between them.
-      "mt-3 space-y-4 pl-6 text-sm",
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+      // Indented past the icon slot to the chat text's left edge, the way
+      // Thinking's body sits. Sections stack with a gap rather than rules
+      // between them.
+      "mt-3 space-y-4 pl-8 text-sm",
+      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
       className,
     )}
     {...props}

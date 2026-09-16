@@ -3,7 +3,11 @@
 import { SparklesIcon } from "lucide-react";
 import type { ToolUIPart } from "ai";
 import { type CustomUITools } from "@platypus/backend/src/types";
-import { ToolStatus, toolRowClassName } from "./ai-elements/tool";
+import {
+  ToolStatus,
+  toolRowClassName,
+  toolRowIconSlotClassName,
+} from "./ai-elements/tool";
 
 /**
  * `loadSkill` is enumerated in `CustomUITools`, so its part carries real
@@ -29,16 +33,18 @@ export const LoadSkillTool = ({ toolPart }: LoadSkillToolProps) => {
     toolPart.errorText || (output && "error" in output ? output.error : null);
 
   return (
-    <div className="not-prose mb-4 w-full min-w-0">
+    <div className="not-prose w-full min-w-0">
       <div className={toolRowClassName}>
-        <SparklesIcon className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+        <span className={toolRowIconSlotClassName}>
+          <SparklesIcon className="size-4" />
+        </span>
+        <span className="min-w-0 truncate">
           Loading skill{input?.name ? `: ${input.name}` : ""}
         </span>
         <ToolStatus state={errorText ? "output-error" : toolPart.state} />
       </div>
       {errorText && (
-        <div className="mt-1 pl-6 text-destructive text-xs">{errorText}</div>
+        <div className="mt-1 pl-8 text-destructive text-xs">{errorText}</div>
       )}
     </div>
   );
