@@ -1761,6 +1761,18 @@ export type InvitationLinkResolution = z.infer<
   typeof invitationLinkResolutionSchema
 >;
 
+// Body of the unauthenticated invitation-link registration endpoint
+// (#549, ADR-0019). The email is deliberately absent: it comes only from
+// the token server-side, matching the frontend's non-editable email field.
+export const invitationRedemptionRegisterSchema = z.object({
+  name: z.string().min(1),
+  password: z.string().min(8),
+});
+
+export type InvitationRedemptionRegister = z.infer<
+  typeof invitationRedemptionRegisterSchema
+>;
+
 export const providerUpdateSchema = providerBaseSchema.pick({
   name: true,
   providerType: true,
