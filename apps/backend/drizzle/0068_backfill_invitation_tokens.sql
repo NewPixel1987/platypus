@@ -20,4 +20,6 @@
 -- it touched is no longer NULL.
 UPDATE "invitation"
 SET "token" = gen_random_uuid()::text
-WHERE "token" IS NULL;
+WHERE "token" IS NULL
+  AND "status" = 'pending'
+  AND "expires_at" > now();
