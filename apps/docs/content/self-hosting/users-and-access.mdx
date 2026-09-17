@@ -83,11 +83,14 @@ What they see depends on whether they're signed in, and as whom:
   fixed to the invited address and can't be changed. Submitting it creates
   the account and joins the Organization in one step; there is no separate
   sign-up first.
+- **Have an account but are signed out** — choose **Already have an account?
+  Sign in** on the invitation page. Enter your existing password, then click
+  **Accept invitation**. You stay on the page throughout.
 - **Already signed in as the invited address** — a single **Accept
   invitation** button.
 - **Signed in as a different address** — refused, with an explanation and a
   **Sign out** button. The invitation is untouched and still pending; they
-  can sign out and reopen the link to redeem it properly.
+  can sign out and sign in with the invited account on the same page.
 
 Either of the first two provisions the Workspace with any Blueprints applied,
 same as before.
@@ -96,10 +99,10 @@ same as before.
 
 <Callout type="warning">
   **Platypus sends no email. Ever.** There is no SMTP configuration, no mail
-  transport, and no delivery to wait for. "Send invitation" writes a row; it does
-  not notify anybody. Copy the link yourself and send it over whatever channel
-  you already use. Watching an inbox for a Platypus invitation is watching an
-  inbox nothing will arrive in.
+  transport, and no delivery to wait for. "Send invitation" writes a row; it
+  does not notify anybody. Copy the link yourself and send it over whatever
+  channel you already use. Watching an inbox for a Platypus invitation is
+  watching an inbox nothing will arrive in.
 </Callout>
 
 ### Expiry
@@ -112,11 +115,11 @@ invitation cannot be accepted — send a new one.
 
 Three levels of authority, each bounded by the one above:
 
-| Role                | Is                                                              | Gets it by                                                     |
-| ------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- |
-| **Super Admin**     | The platform account. Bypasses all in-app authorization         | Seeded on first boot from `ADMIN_EMAIL` / `ADMIN_PASSWORD`      |
-| **Org Admin**       | Holds the Organization's credentials and Shared resources        | An existing Org Admin sets their **Org Role** to `admin`        |
-| **Workspace Owner** | Owns one Workspace and everything composed inside it            | Assigned when the Workspace is created                         |
+| Role                | Is                                                        | Gets it by                                                 |
+| ------------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
+| **Super Admin**     | The platform account. Bypasses all in-app authorization   | Seeded on first boot from `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
+| **Org Admin**       | Holds the Organization's credentials and Shared resources | An existing Org Admin sets their **Org Role** to `admin`   |
+| **Workspace Owner** | Owns one Workspace and everything composed inside it      | Assigned when the Workspace is created                     |
 
 An Org Admin changes roles from **Organization settings → Members**, using a
 row's **Edit org role**, and can remove somebody with **Remove from Org**. A
@@ -141,9 +144,9 @@ self-registered account should not exist. It is also the recovery path referred 
 elsewhere as "the in-app user management".
 
 <Callout type="info">
-  Neither action is offered on your own row, or on another **Super Admin**'s. You
-  cannot delete yourself by accident, and you cannot demote or lock out the other
-  platform admin from here — that needs database access.
+  Neither action is offered on your own row, or on another **Super Admin**'s.
+  You cannot delete yourself by accident, and you cannot demote or lock out the
+  other platform admin from here — that needs database access.
 </Callout>
 
 ## Where to next

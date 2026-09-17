@@ -102,6 +102,7 @@ type BuilderMethodName =
   | "select"
   | "from"
   | "where"
+  | "for"
   | "limit"
   | "offset"
   | "orderBy"
@@ -151,6 +152,7 @@ function installBuilderMethods(target: MockDb): void {
     "select",
     "from",
     "where",
+    "for",
     "limit",
     "offset",
     "orderBy",
@@ -380,7 +382,9 @@ export const mockCreateUserAlreadyExists = () => {
  * Helper to mock `auth.api.signInEmail({ asResponse: true })` — the shape the
  * invitation-link registration route reads to relay the fresh session cookie.
  */
-export const mockSignInEmail = (cookies: string[] = ["better-auth.session_token=tok; Path=/"]) => {
+export const mockSignInEmail = (
+  cookies: string[] = ["better-auth.session_token=tok; Path=/"],
+) => {
   mockAuth.api.signInEmail.mockResolvedValue({
     headers: { getSetCookie: () => cookies },
   });

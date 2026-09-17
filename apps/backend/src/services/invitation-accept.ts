@@ -30,9 +30,7 @@ const defaultWorkspaceName = (name: string): string => {
 };
 
 export type AcceptInvitationResult =
-  | { outcome: "accepted" }
-  | { outcome: "not_found" }
-  | { outcome: "expired" };
+  { outcome: "accepted" } | { outcome: "not_found" } | { outcome: "expired" };
 
 /**
  * The single accept path (#549, ADR-0019): provisions org membership, a
@@ -48,35 +46,38 @@ export async function acceptInvitationForUser(
   invitationId: string,
   user: { id: string; name: string; email: string },
 ): Promise<AcceptInvitationResult> {
-  const now = new Date();
+  return db.transaction(async (tx): Promise<AcceptInvitationResult> => {
+    // Serialize acceptance with other accepts, declines, and deletion. Postgres
+    // rechecks the pending predicate after a competing row lock is released.
+    const invitation = await tx
+      .select()
+      .from(invitationTable)
+      .where(
+        and(
+          eq(invitationTable.id, invitationId),
+          eq(invitationTable.email, user.email),
+          eq(invitationTable.status, "pending"),
+        ),
+      )
+      .for("update")
+      .limit(1);
 
-  const invitation = await db
-    .select()
-    .from(invitationTable)
-    .where(
-      and(
-        eq(invitationTable.id, invitationId),
-        eq(invitationTable.email, user.email),
-        eq(invitationTable.status, "pending"),
-      ),
-    )
-    .limit(1);
+    if (invitation.length === 0) {
+      return { outcome: "not_found" };
+    }
 
-  if (invitation.length === 0) {
-    return { outcome: "not_found" };
-  }
+    // Read the clock after acquiring the lock: an invitation can expire while
+    // this transaction waits for another writer.
+    if (new Date(invitation[0].expiresAt) <= new Date()) {
+      await tx
+        .update(invitationTable)
+        .set({ status: "expired" })
+        .where(eq(invitationTable.id, invitationId));
+      return { outcome: "expired" };
+    }
 
-  if (new Date(invitation[0].expiresAt) < now) {
-    await db
-      .update(invitationTable)
-      .set({ status: "expired" })
-      .where(eq(invitationTable.id, invitationId));
-    return { outcome: "expired" };
-  }
+    const invite = invitation[0];
 
-  const invite = invitation[0];
-
-  await db.transaction(async (tx) => {
     // Ensure org membership exists
     const orgMember = await tx
       .select()
@@ -130,7 +131,6 @@ export async function acceptInvitationForUser(
       .update(invitationTable)
       .set({ status: "accepted" })
       .where(eq(invitationTable.id, invitationId));
+    return { outcome: "accepted" };
   });
-
-  return { outcome: "accepted" };
 }

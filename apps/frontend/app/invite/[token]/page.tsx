@@ -26,7 +26,12 @@ import type { InvitationLinkResolution } from "@platypus/schemas";
 export default function InviteTokenPage() {
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
-  const { user, authClient, isPending: isAuthPending } = useAuth();
+  const {
+    user,
+    authClient,
+    refreshSession,
+    isPending: isAuthPending,
+  } = useAuth();
   const backendUrl = useBackendUrl();
 
   // The token lives only in this page's own state after the first render —
@@ -49,6 +54,7 @@ export default function InviteTokenPage() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   const invalid = !isLoading && (error !== undefined || data === null);
 
@@ -60,12 +66,45 @@ export default function InviteTokenPage() {
       joinUrl(backendUrl, `/invitation-links/${redeemToken}/register`),
       { method: "POST", data: { name, password } },
     );
-    setIsSubmitting(false);
     if (outcome.outcome !== "success") {
+      setIsSubmitting(false);
       setFormError(outcome.message);
+      if (outcome.outcome === "conflict") {
+        setIsSigningIn(true);
+        setPassword("");
+      }
       return;
     }
+    // This endpoint sets cookies outside Better Auth's client. Refresh its
+    // session store before navigating into a protected page.
+    await refreshSession();
+    setIsSubmitting(false);
     router.push("/");
+  };
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!data) return;
+    setFormError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await authClient.signIn.email({
+        email: data.email,
+        password,
+      });
+      if (result.error) {
+        setFormError(result.error.message || "Sign in failed");
+        return;
+      }
+      // Stay here with the token in memory. The invited-account state below
+      // offers Accept after the session refresh, without exposing the URL again.
+      await refreshSession();
+      setPassword("");
+    } catch {
+      setFormError("Sign in failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAccept = async () => {
@@ -117,9 +156,10 @@ export default function InviteTokenPage() {
         <div className="w-full max-w-md space-y-4 p-8 text-center">
           <h1 className="text-2xl font-bold">Wrong account</h1>
           <p className="text-muted-foreground">
-            This invitation to join <span className="font-bold">{data.organizationName}</span> was
-            sent to <span className="font-bold">{data.email}</span>, but you
-            are signed in as <span className="font-bold">{user.email}</span>.
+            This invitation to join{" "}
+            <span className="font-bold">{data.organizationName}</span> was sent
+            to <span className="font-bold">{data.email}</span>, but you are
+            signed in as <span className="font-bold">{user.email}</span>.
           </p>
           <Button onClick={handleSignOut} className="w-full">
             Sign out
@@ -137,8 +177,8 @@ export default function InviteTokenPage() {
           <div>
             <h1 className="text-2xl font-bold">You&apos;re invited</h1>
             <p className="text-muted-foreground mt-2">
-              Join <span className="font-bold">{data.organizationName}</span>{" "}
-              as {data.email}.
+              Join <span className="font-bold">{data.organizationName}</span> as{" "}
+              {data.email}.
             </p>
           </div>
           {formError && (
@@ -158,19 +198,22 @@ export default function InviteTokenPage() {
     );
   }
 
-  // No session: a registration form with the invited email fixed.
+  // No session: register or sign in here, retaining the resolved token.
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="w-full max-w-md space-y-8 p-8">
         <div className="text-center">
           <h1 className="text-2xl font-bold">You&apos;re invited</h1>
           <p className="text-muted-foreground mt-2">
-            Create an account to join{" "}
+            {isSigningIn ? "Sign in to join " : "Create an account to join "}
             <span className="font-bold">{data.organizationName}</span>.
           </p>
         </div>
 
-        <form onSubmit={handleRegister} className="space-y-4">
+        <form
+          onSubmit={isSigningIn ? handleSignIn : handleRegister}
+          className="space-y-4"
+        >
           {formError && (
             <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
               {formError}
@@ -179,39 +222,69 @@ export default function InviteTokenPage() {
 
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" value={data.email} disabled readOnly />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
             <Input
-              id="name"
-              type="text"
-              placeholder="Your name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              required
+              id="email"
+              type="email"
+              value={data.email}
+              disabled
+              readOnly
             />
           </div>
+
+          {!isSigningIn && (
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+                required
+              />
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <RevealableInput
               id="password"
-              placeholder="At least 8 characters"
+              placeholder={
+                isSigningIn ? "Your password" : "At least 8 characters"
+              }
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
+              minLength={isSigningIn ? undefined : 8}
               required
               disabled={isSubmitting}
             />
           </div>
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? "Creating account…" : "Accept invitation"}
+            {isSubmitting
+              ? isSigningIn
+                ? "Signing in…"
+                : "Creating account…"
+              : isSigningIn
+                ? "Sign in"
+                : "Accept invitation"}
           </Button>
         </form>
+        <Button
+          variant="link"
+          className="w-full"
+          disabled={isSubmitting}
+          onClick={() => {
+            setIsSigningIn(!isSigningIn);
+            setFormError(null);
+            setPassword("");
+          }}
+        >
+          {isSigningIn
+            ? "Need an account? Create one"
+            : "Already have an account? Sign in"}
+        </Button>
       </div>
     </div>
   );

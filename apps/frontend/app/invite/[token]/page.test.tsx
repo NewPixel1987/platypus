@@ -4,6 +4,7 @@ import InviteTokenPage from "./page";
 
 const mockPush = vi.fn();
 const mockSignOut = vi.fn();
+const mockRefreshSession = vi.fn().mockResolvedValue(undefined);
 
 /**
  * Each test uses a distinct token, so each gets its own SWR cache entry —
@@ -29,6 +30,7 @@ vi.mock("@/components/auth-provider", () => ({
   useAuth: () => ({
     user: mockUser,
     isPending: false,
+    refreshSession: mockRefreshSession,
     authClient: { signOut: mockSignOut },
   }),
 }));
@@ -66,14 +68,14 @@ describe("InviteTokenPage", () => {
   it("shows a not-found message for an invalid or already-redeemed token", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }),
+      vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }),
     );
 
     render(<InviteTokenPage />);
 
-    expect(
-      await screen.findByText("Invitation not found"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Invitation not found")).toBeInTheDocument();
   });
 
   describe("no session", () => {
@@ -122,7 +124,9 @@ describe("InviteTokenPage", () => {
       fireEvent.change(screen.getByLabelText("Password"), {
         target: { value: "at-least-8-chars" },
       });
-      fireEvent.click(screen.getByRole("button", { name: /accept invitation/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /accept invitation/i }),
+      );
 
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
 
@@ -185,7 +189,9 @@ describe("InviteTokenPage", () => {
       render(<InviteTokenPage />);
 
       expect(await screen.findByText("Wrong account")).toBeInTheDocument();
-      expect(screen.getByText("someone-else@example.com", { exact: false })).toBeInTheDocument();
+      expect(
+        screen.getByText("someone-else@example.com", { exact: false }),
+      ).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
       expect(mockSignOut).toHaveBeenCalled();
@@ -193,7 +199,8 @@ describe("InviteTokenPage", () => {
       expect(
         fetchMock.mock.calls.some(
           ([url]) =>
-            String(url).endsWith("/accept") || String(url).endsWith("/register"),
+            String(url).endsWith("/accept") ||
+            String(url).endsWith("/register"),
         ),
       ).toBe(false);
     });
