@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   FolderOpen,
   BotMessageSquare,
@@ -65,9 +65,11 @@ import { useBackendUrl } from "@/app/client-context";
 import { TagInput } from "@/components/tag-input";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SidebarScrim } from "@/components/sidebar-scrim";
-
-/** How often to re-read the chat list while at least one chat is running. */
-const RUNNING_CHAT_POLL_INTERVAL_MS = 3000;
+import {
+  activeChatIdFromPathname,
+  chatListPoll,
+  type WatchedChat,
+} from "@/lib/chat-list-poll";
 
 export function AppSidebar() {
   const { orgId, workspaceId } = useParams<{
@@ -94,6 +96,9 @@ export function AppSidebar() {
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   const { mutate } = useSWRConfig();
+
+  const activeChatId = activeChatIdFromPathname(pathname, orgId, workspaceId);
+  const watchedChatsRef = useRef<WatchedChat[]>([]);
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -135,15 +140,26 @@ export function AppSidebar() {
       : null,
     fetcher,
     {
-      // The per-chat spinner below is rendered straight off this cached list,
-      // and nothing else revalidates it when a run finishes — including runs in
-      // chats the user isn't currently viewing, where the client has no stream
-      // to hang a terminal event off. Poll while any listed chat is running;
-      // the condition clears itself once the backend reports a terminal status.
-      refreshInterval: (latest) =>
-        latest?.results.some((chat) => chat.status === "running")
-          ? RUNNING_CHAT_POLL_INTERVAL_MS
-          : 0,
+      // Nothing else revalidates this list: not the per-chat spinner rendered
+      // off it, not the chat row the backend creates when a run starts, not
+      // the title written after that run ends. See `lib/chat-list-poll` for
+      // what each poll waits on and how it stops.
+      //
+      // SWR calls this when it arms the next timer — on every render and after
+      // every fetch — which is also when the set of chats being waited on is
+      // worth recomputing: a route change is a render, and a chat arriving is
+      // a fetch.
+      refreshInterval: (latest) => {
+        const { watched, intervalMs } = chatListPoll({
+          watched: watchedChatsRef.current,
+          listed: latest?.results,
+          activeChatId,
+          now: Date.now(),
+          isSearching: debouncedSearch !== "",
+        });
+        watchedChatsRef.current = watched;
+        return intervalMs;
+      },
     },
   );
 
