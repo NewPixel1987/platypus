@@ -64,7 +64,6 @@ import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { useBackendUrl } from "@/app/client-context";
 import { TagInput } from "@/components/tag-input";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SidebarScrim } from "@/components/sidebar-scrim";
 import {
   activeChatIdFromPathname,
   chatListPoll,
@@ -93,7 +92,6 @@ export function AppSidebar() {
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTogglingPin, setIsTogglingPin] = useState(false);
-  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   const { mutate } = useSWRConfig();
 
@@ -325,10 +323,7 @@ export function AppSidebar() {
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <DropdownMenu
-                open={isWorkspaceMenuOpen}
-                onOpenChange={setIsWorkspaceMenuOpen}
-              >
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton className="h-auto py-2">
                     <div className="flex flex-col flex-1 items-start leading-none">
@@ -346,7 +341,7 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                  className="w-56"
+                  className="w-56 bg-sidebar-panel"
                   align="start"
                   side={isMobile ? "bottom" : "right"}
                 >
@@ -528,7 +523,6 @@ export function AppSidebar() {
           </SidebarContent>
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-sidebar to-transparent" />
         </div>
-        <SidebarScrim open={isWorkspaceMenuOpen} />
       </Sidebar>
 
       {/* Rename Chat Dialog */}
