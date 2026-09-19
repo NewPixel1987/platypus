@@ -64,6 +64,7 @@ import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { useBackendUrl } from "@/app/client-context";
 import { TagInput } from "@/components/tag-input";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { SidebarScrim } from "@/components/sidebar-scrim";
 
 /** How often to re-read the chat list while at least one chat is running. */
 const RUNNING_CHAT_POLL_INTERVAL_MS = 3000;
@@ -90,6 +91,7 @@ export function AppSidebar() {
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTogglingPin, setIsTogglingPin] = useState(false);
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
   const { mutate } = useSWRConfig();
 
@@ -307,7 +309,10 @@ export function AppSidebar() {
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <DropdownMenu>
+              <DropdownMenu
+                open={isWorkspaceMenuOpen}
+                onOpenChange={setIsWorkspaceMenuOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton className="h-auto py-2">
                     <div className="flex flex-col flex-1 items-start leading-none">
@@ -507,6 +512,7 @@ export function AppSidebar() {
           </SidebarContent>
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-sidebar to-transparent" />
         </div>
+        <SidebarScrim open={isWorkspaceMenuOpen} />
       </Sidebar>
 
       {/* Rename Chat Dialog */}
