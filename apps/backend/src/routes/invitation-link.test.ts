@@ -148,7 +148,11 @@ describe("Invitation Link Routes", () => {
 
     it("creates the account via the admin create-user API, signs in, and accepts through the shared accept path", async () => {
       mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
-      mockCreateUser({ id: "new-user", email: "invitee@example.com", name: "Robin" });
+      mockCreateUser({
+        id: "new-user",
+        email: "invitee@example.com",
+        name: "Robin",
+      });
       mockSignInEmail(["better-auth.session_token=tok; Path=/; HttpOnly"]);
       mockDb.limit.mockResolvedValueOnce([
         { ...validInvitationRow, workspaceName: null },
@@ -163,10 +167,20 @@ describe("Invitation Link Routes", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ message: "Invitation accepted" });
       expect(res.headers.get("set-cookie")).toContain(
         "better-auth.session_token=tok",
       );
+
+      // The response names the Organization and the Workspace this accept
+      // provisioned, so the client can land the new member there.
+      const provisioned = mockDb.values.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((v) => v?.name);
+      expect(await res.json()).toEqual({
+        message: "Invitation accepted",
+        organizationId: "org-1",
+        workspaceId: provisioned!.id,
+      });
 
       // The email that reaches auth.api.createUser is the token's, never
       // anything the client could have supplied in the body.
@@ -205,6 +219,79 @@ describe("Invitation Link Routes", () => {
       });
     });
 
+    // The redemption path must refuse a spent or lapsed token *before* it
+    // mints an account -- otherwise a dead link still creates users.
+    it.each([
+      ["an already-redeemed", { status: "accepted", expiresAt: futureDate() }],
+      ["a declined", { status: "declined", expiresAt: futureDate() }],
+      ["an expired", { status: "pending", expiresAt: pastDate() }],
+    ])(
+      "404s with the generic message and creates no account for %s token",
+      async (_label, overrides) => {
+        mockDb.limit.mockResolvedValueOnce([
+          { ...validInvitationRow, ...overrides },
+        ]);
+
+        const res = await app.request(`${baseUrl}/tok_spent/register`, {
+          method: "POST",
+          body: JSON.stringify({ name: "Robin", password: "at-least-8-chars" }),
+          headers: { "Content-Type": "application/json" },
+        });
+
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual(INVALID_LINK_BODY);
+        expect(mockAuth.api.createUser).not.toHaveBeenCalled();
+        expect(mockAuth.api.signInEmail).not.toHaveBeenCalled();
+      },
+    );
+
+    // The token resolved, the account was made, and only then did the
+    // invitation turn out to be gone. The account is real either way, so the
+    // caller gets the invitation-specific reason rather than the generic one.
+    it("reports the invitation as already processed when it is redeemed between resolution and accept", async () => {
+      mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
+      mockCreateUser({
+        id: "new-user",
+        email: "invitee@example.com",
+        name: "Robin",
+      });
+      mockSignInEmail();
+      mockDb.limit.mockResolvedValueOnce([]); // acceptInvitationForUser: no longer pending
+
+      const res = await app.request(`${baseUrl}/tok_valid/register`, {
+        method: "POST",
+        body: JSON.stringify({ name: "Robin", password: "at-least-8-chars" }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: "Invitation not found or already processed",
+      });
+    });
+
+    it("reports the invitation as expired when it lapses between resolution and accept", async () => {
+      mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
+      mockCreateUser({
+        id: "new-user",
+        email: "invitee@example.com",
+        name: "Robin",
+      });
+      mockSignInEmail();
+      mockDb.limit.mockResolvedValueOnce([
+        { ...validInvitationRow, expiresAt: pastDate() },
+      ]); // acceptInvitationForUser: fetch invitation, now past its expiry
+
+      const res = await app.request(`${baseUrl}/tok_valid/register`, {
+        method: "POST",
+        body: JSON.stringify({ name: "Robin", password: "at-least-8-chars" }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      expect(res.status).toBe(410);
+      expect(await res.json()).toEqual({ error: "Invitation has expired" });
+    });
+
     it("rejects a password shorter than 8 characters before touching the token", async () => {
       const res = await app.request(`${baseUrl}/tok_valid/register`, {
         method: "POST",
@@ -227,7 +314,12 @@ describe("Invitation Link Routes", () => {
     };
 
     it("accepts through the shared accept path when the session email matches the invite", async () => {
-      mockSession({ id: "u1", email: "invitee@example.com", name: "Robin", role: "user" });
+      mockSession({
+        id: "u1",
+        email: "invitee@example.com",
+        name: "Robin",
+        role: "user",
+      });
       mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
       mockDb.limit.mockResolvedValueOnce([
         { ...validInvitationRow, workspaceName: null },
@@ -240,11 +332,23 @@ describe("Invitation Link Routes", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ message: "Invitation accepted" });
+
+      const provisioned = mockDb.values.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((v) => v?.name);
+      expect(await res.json()).toEqual({
+        message: "Invitation accepted",
+        organizationId: "org-1",
+        workspaceId: provisioned!.id,
+      });
     });
 
     it("refuses with a specific reason when signed in as a different address", async () => {
-      mockSession({ id: "u2", email: "someone-else@example.com", role: "user" });
+      mockSession({
+        id: "u2",
+        email: "someone-else@example.com",
+        role: "user",
+      });
       mockDb.limit.mockResolvedValueOnce([validInvitationRow]);
 
       const res = await app.request(`${baseUrl}/tok_valid/accept`, {
@@ -277,6 +381,58 @@ describe("Invitation Link Routes", () => {
 
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual(INVALID_LINK_BODY);
+    });
+
+    it.each([
+      ["an already-redeemed", { status: "accepted", expiresAt: futureDate() }],
+      ["a declined", { status: "declined", expiresAt: futureDate() }],
+      ["an expired", { status: "pending", expiresAt: pastDate() }],
+    ])(
+      "404s with the generic message and provisions nothing for %s token",
+      async (_label, overrides) => {
+        mockSession({ id: "u1", email: "invitee@example.com", role: "user" });
+        mockDb.limit.mockResolvedValueOnce([
+          { ...validInvitationRow, ...overrides },
+        ]);
+
+        const res = await app.request(`${baseUrl}/tok_spent/accept`, {
+          method: "POST",
+        });
+
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual(INVALID_LINK_BODY);
+        expect(mockDb.transaction).not.toHaveBeenCalled();
+      },
+    );
+
+    it("reports the invitation as already processed when it is redeemed between resolution and accept", async () => {
+      mockSession({ id: "u1", email: "invitee@example.com", role: "user" });
+      mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
+      mockDb.limit.mockResolvedValueOnce([]); // acceptInvitationForUser: no longer pending
+
+      const res = await app.request(`${baseUrl}/tok_valid/accept`, {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: "Invitation not found or already processed",
+      });
+    });
+
+    it("reports the invitation as expired when it lapses between resolution and accept", async () => {
+      mockSession({ id: "u1", email: "invitee@example.com", role: "user" });
+      mockDb.limit.mockResolvedValueOnce([validInvitationRow]); // resolveValidInvitationByToken
+      mockDb.limit.mockResolvedValueOnce([
+        { ...validInvitationRow, expiresAt: pastDate() },
+      ]); // acceptInvitationForUser: fetch invitation, now past its expiry
+
+      const res = await app.request(`${baseUrl}/tok_valid/accept`, {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(410);
+      expect(await res.json()).toEqual({ error: "Invitation has expired" });
     });
   });
 });

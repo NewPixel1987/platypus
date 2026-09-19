@@ -8,7 +8,10 @@ import {
 import { eq } from "drizzle-orm";
 import { auth } from "../auth.ts";
 import { requireAuth } from "../middleware/authentication.ts";
-import { acceptInvitationForUser } from "../services/invitation-accept.ts";
+import {
+  acceptInvitationForUser,
+  acceptResultResponse,
+} from "../services/invitation-accept.ts";
 import { invitationRedemptionRegisterSchema } from "@platypus/schemas";
 import type { Variables } from "../server.ts";
 
@@ -165,14 +168,7 @@ invitationLink.post(
     // The account this route just created is real and signed in either way,
     // so this reports the invitation-specific failure rather than the
     // generic link error, which would now be misleading.
-    if (result.outcome === "not_found") {
-      return c.json({ error: "Invitation not found or already processed" }, 404);
-    }
-    if (result.outcome === "expired") {
-      return c.json({ error: "Invitation has expired" }, 410);
-    }
-
-    return c.json({ message: "Invitation accepted" });
+    return acceptResultResponse(c, result);
   },
 );
 
@@ -203,14 +199,7 @@ invitationLink.post("/:token/accept", requireAuth, async (c) => {
 
   const result = await acceptInvitationForUser(resolved.id, user);
 
-  if (result.outcome === "not_found") {
-    return c.json({ error: "Invitation not found or already processed" }, 404);
-  }
-  if (result.outcome === "expired") {
-    return c.json({ error: "Invitation has expired" }, 410);
-  }
-
-  return c.json({ message: "Invitation accepted" });
+  return acceptResultResponse(c, result);
 });
 
 export { invitationLink };

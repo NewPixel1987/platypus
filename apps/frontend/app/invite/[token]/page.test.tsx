@@ -40,6 +40,14 @@ const RESOLUTION_BODY = {
   organizationName: "Acme",
 };
 
+/** What the register and accept endpoints return: where the accept landed. */
+const ACCEPT_BODY = {
+  message: "Invitation accepted",
+  organizationId: "org-9",
+  workspaceId: "ws-9",
+};
+const WORKSPACE_PATH = "/org-9/workspace/ws-9";
+
 describe("InviteTokenPage", () => {
   let tokenCounter = 0;
 
@@ -105,7 +113,7 @@ describe("InviteTokenPage", () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: async () => ({ message: "Invitation accepted" }),
+            json: async () => ACCEPT_BODY,
           });
         }
         return Promise.resolve({
@@ -128,7 +136,12 @@ describe("InviteTokenPage", () => {
         screen.getByRole("button", { name: /accept invitation/i }),
       );
 
-      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
+      // Straight into the Workspace the accept provisioned -- not "/", which
+      // for a member of other Organizations may not resolve to this one.
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(WORKSPACE_PATH),
+      );
+      expect(mockPush).not.toHaveBeenCalledWith("/");
 
       const registerCall = fetchMock.mock.calls.find(([url]) =>
         String(url).endsWith("/register"),
@@ -152,7 +165,7 @@ describe("InviteTokenPage", () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: async () => ({ message: "Invitation accepted" }),
+            json: async () => ACCEPT_BODY,
           });
         }
         return Promise.resolve({
@@ -169,7 +182,10 @@ describe("InviteTokenPage", () => {
         await screen.findByRole("button", { name: /accept invitation/i }),
       );
 
-      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/"));
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(WORKSPACE_PATH),
+      );
+      expect(mockPush).not.toHaveBeenCalledWith("/");
       expect(
         fetchMock.mock.calls.some(([url]) => String(url).endsWith("/accept")),
       ).toBe(true);

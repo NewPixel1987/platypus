@@ -556,9 +556,8 @@ export const invitation = pgTable(
     workspaceName: t.text("workspace_name"),
     // Redemption token minted with the invitation (ADR-0019, #549): a
     // URL-safe, unguessable string that lets someone without an account yet
-    // resolve — and, in a later change, redeem — the invitation via its
-    // link rather than only after they already hold an account with the
-    // invited address. Plaintext and re-copyable by design (ADR-0019): there
+    // resolve and redeem the invitation via its link rather than only after
+    // they already hold an account with the invited address. Plaintext and re-copyable by design (ADR-0019): there
     // is no rotation action, and Platypus has no email to re-send a
     // show-once secret through. Every insert sets this explicitly (the
     // create handler mints it, same as `id`); it stays nullable at the

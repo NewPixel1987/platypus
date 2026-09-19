@@ -11,7 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RevealableInput } from "@/components/ui/revealable-input";
 import { Label } from "@/components/ui/label";
-import type { InvitationLinkResolution } from "@platypus/schemas";
+import type {
+  InvitationAcceptResult,
+  InvitationLinkResolution,
+} from "@platypus/schemas";
 
 /**
  * Redeems an invitation link (#549, ADR-0019). Three arrival states,
@@ -58,11 +61,19 @@ export default function InviteTokenPage() {
 
   const invalid = !isLoading && (error !== undefined || data === null);
 
+  // Land in the Workspace the accept just provisioned, not the root — for a
+  // member of other Organizations "/" may resolve to a different one.
+  const enterWorkspace = ({
+    organizationId,
+    workspaceId,
+  }: InvitationAcceptResult) =>
+    router.push(`/${organizationId}/workspace/${workspaceId}`);
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     setIsSubmitting(true);
-    const outcome = await writeAt(
+    const outcome = await writeAt<InvitationAcceptResult>(
       joinUrl(backendUrl, `/invitation-links/${redeemToken}/register`),
       { method: "POST", data: { name, password } },
     );
@@ -79,7 +90,7 @@ export default function InviteTokenPage() {
     // session store before navigating into a protected page.
     await refreshSession();
     setIsSubmitting(false);
-    router.push("/");
+    enterWorkspace(outcome.data);
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -110,7 +121,7 @@ export default function InviteTokenPage() {
   const handleAccept = async () => {
     setFormError(null);
     setIsSubmitting(true);
-    const outcome = await writeAt(
+    const outcome = await writeAt<InvitationAcceptResult>(
       joinUrl(backendUrl, `/invitation-links/${redeemToken}/accept`),
       { method: "POST" },
     );
@@ -119,7 +130,7 @@ export default function InviteTokenPage() {
       setFormError(outcome.message);
       return;
     }
-    router.push("/");
+    enterWorkspace(outcome.data);
   };
 
   const handleSignOut = async () => {
@@ -129,7 +140,7 @@ export default function InviteTokenPage() {
   if (isLoading || isAuthPending) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading invitation…</p>
+        <p className="text-muted-foreground">Loading invitation...</p>
       </div>
     );
   }
@@ -191,7 +202,7 @@ export default function InviteTokenPage() {
             className="w-full"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Accepting…" : "Accept invitation"}
+            {isSubmitting ? "Accepting..." : "Accept invitation"}
           </Button>
         </div>
       </div>
@@ -264,8 +275,8 @@ export default function InviteTokenPage() {
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting
               ? isSigningIn
-                ? "Signing in…"
-                : "Creating account…"
+                ? "Signing in..."
+                : "Creating account..."
               : isSigningIn
                 ? "Sign in"
                 : "Accept invitation"}

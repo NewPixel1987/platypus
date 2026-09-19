@@ -13,6 +13,13 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/app/client-context", () => ({ useBackendUrl: () => backendUrl }));
 
+const WORKSPACE_PATH = "/org-9/workspace/ws-9";
+const acceptedBody = {
+  message: "Invitation accepted",
+  organizationId: "org-9",
+  workspaceId: "ws-9",
+};
+
 const invitedUser = {
   id: "invitee",
   email: "invitee@example.com",
@@ -59,7 +66,7 @@ beforeEach(() => {
             { status: 409 },
           );
         currentUser = invitedUser;
-        return Response.json({ message: "Invitation accepted" });
+        return Response.json(acceptedBody);
       }
       if (url.endsWith("/sign-in/email")) {
         if (signInFailure)
@@ -74,8 +81,7 @@ beforeEach(() => {
         currentUser = null;
         return Response.json({ success: true });
       }
-      if (url.endsWith("/accept"))
-        return Response.json({ message: "Invitation accepted" });
+      if (url.endsWith("/accept")) return Response.json(acceptedBody);
       if (url.includes("/invitation-links/"))
         return Response.json({
           email: invitedUser.email,
@@ -104,7 +110,7 @@ it("refreshes the real client session before entering a protected page after reg
     target: { value: "review-password" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+  await waitFor(() => expect(push).toHaveBeenCalledWith(WORKSPACE_PATH));
   expect(screen.getByTestId("session")).toHaveTextContent(invitedUser.email);
   view.rerender(
     <AuthProvider backendUrl={backendUrl}>
@@ -137,7 +143,7 @@ it("lets an existing account sign in and accept without losing or restoring the 
   expect(window.location.pathname).toBe("/invite");
   expect(push).not.toHaveBeenCalled();
   fireEvent.click(accept);
-  await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+  await waitFor(() => expect(push).toHaveBeenCalledWith(WORKSPACE_PATH));
   const calls = vi.mocked(fetch).mock.calls;
   expect(
     calls.some(([url]) =>

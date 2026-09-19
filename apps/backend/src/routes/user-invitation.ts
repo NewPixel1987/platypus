@@ -8,7 +8,10 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middleware/authentication.ts";
 import type { Variables } from "../server.ts";
-import { acceptInvitationForUser } from "../services/invitation-accept.ts";
+import {
+  acceptInvitationForUser,
+  acceptResultResponse,
+} from "../services/invitation-accept.ts";
 
 const userInvitation = new Hono<{ Variables: Variables }>();
 
@@ -55,14 +58,7 @@ userInvitation.post("/:invitationId/accept", requireAuth, async (c) => {
 
   const result = await acceptInvitationForUser(invitationId, user);
 
-  if (result.outcome === "not_found") {
-    return c.json({ error: "Invitation not found or already processed" }, 404);
-  }
-  if (result.outcome === "expired") {
-    return c.json({ error: "Invitation has expired" }, 410);
-  }
-
-  return c.json({ message: "Invitation accepted" });
+  return acceptResultResponse(c, result);
 });
 
 /** Decline an invitation */

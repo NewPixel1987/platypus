@@ -1773,6 +1773,19 @@ export type InvitationRedemptionRegister = z.infer<
   typeof invitationRedemptionRegisterSchema
 >;
 
+// Response of the invitation-link redemption and accept endpoints (#549,
+// ADR-0019): where the accept landed the new member, so the client can send
+// them straight to the Workspace it just provisioned.
+export const invitationAcceptResultSchema = z.object({
+  message: z.string(),
+  organizationId: z.string(),
+  workspaceId: z.string(),
+});
+
+export type InvitationAcceptResult = z.infer<
+  typeof invitationAcceptResultSchema
+>;
+
 export const providerUpdateSchema = providerBaseSchema.pick({
   name: true,
   providerType: true,

@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import { eq, and, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "../index.ts";
@@ -30,7 +31,36 @@ const defaultWorkspaceName = (name: string): string => {
 };
 
 export type AcceptInvitationResult =
-  { outcome: "accepted" } | { outcome: "not_found" } | { outcome: "expired" };
+  | { outcome: "accepted"; organizationId: string; workspaceId: string }
+  | { outcome: "not_found" }
+  | { outcome: "expired" };
+
+/**
+ * The HTTP response for an accept outcome, stated once for every route that
+ * accepts an invitation. A successful accept reports the Organization and the
+ * freshly provisioned Workspace, so a caller can land the new member there
+ * rather than guessing where they belong.
+ */
+export function acceptResultResponse(
+  c: Context,
+  result: AcceptInvitationResult,
+) {
+  switch (result.outcome) {
+    case "not_found":
+      return c.json(
+        { error: "Invitation not found or already processed" },
+        404,
+      );
+    case "expired":
+      return c.json({ error: "Invitation has expired" }, 410);
+    case "accepted":
+      return c.json({
+        message: "Invitation accepted",
+        organizationId: result.organizationId,
+        workspaceId: result.workspaceId,
+      });
+  }
+}
 
 /**
  * The single accept path (#549, ADR-0019): provisions org membership, a
@@ -131,6 +161,10 @@ export async function acceptInvitationForUser(
       .update(invitationTable)
       .set({ status: "accepted" })
       .where(eq(invitationTable.id, invitationId));
-    return { outcome: "accepted" };
+    return {
+      outcome: "accepted",
+      organizationId: invite.organizationId,
+      workspaceId,
+    };
   });
 }

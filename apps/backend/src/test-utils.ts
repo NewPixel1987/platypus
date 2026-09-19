@@ -362,9 +362,7 @@ export const mockNoSession = () => {
  * Helper to mock `auth.api.createUser` — the administrative create-user call
  * the invitation-link registration route uses (see `invitation-link.ts`).
  */
-export const mockCreateUser = (
-  user: unknown = { id: "user-1", email: "test@example.com", name: "Test" },
-) => {
+export const mockCreateUser = (user: unknown) => {
   mockAuth.api.createUser.mockResolvedValue({ user });
 };
 
