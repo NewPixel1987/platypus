@@ -4,7 +4,7 @@ import { MCP } from "@platypus/schemas";
 import { Item, ItemActions, ItemContent, ItemTitle } from "./ui/item";
 import { cn } from "../lib/utils";
 import { useScopedSWR } from "@/hooks/use-scoped-swr";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   canConfigureWorkspaceResource,
   canManageSharedResource,
@@ -18,7 +18,6 @@ import {
   Unlink,
 } from "lucide-react";
 import Link from "next/link";
-import { useBackendUrl } from "@/app/client-context";
 import { NoMcpEmptyState } from "./no-mcp-empty-state";
 import { Button } from "./ui/button";
 import {

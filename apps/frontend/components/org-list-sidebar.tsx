@@ -13,8 +13,7 @@ import Link from "next/link";
 import useSWR, { preload } from "swr";
 import { useEffect } from "react";
 import { fetcher, joinUrl } from "@/lib/utils";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Organization } from "@platypus/schemas";
 

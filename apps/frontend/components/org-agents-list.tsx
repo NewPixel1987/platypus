@@ -21,8 +21,7 @@ import { Bot, EllipsisVertical, Pencil, Share2, Trash2 } from "lucide-react";
 import { type Agent } from "@platypus/schemas";
 import { joinUrl } from "@/lib/utils";
 import { useScopedSWR } from "@/hooks/use-scoped-swr";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { canManageOrgSharedResource } from "@/lib/authorization";
 import {
   ManageAttachmentsDialog,

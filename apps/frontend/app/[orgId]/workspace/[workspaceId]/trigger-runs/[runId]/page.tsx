@@ -20,8 +20,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { mergeRunEvents, nextSinceSeq } from "@/lib/run-timeline";
 

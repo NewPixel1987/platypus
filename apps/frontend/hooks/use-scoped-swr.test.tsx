@@ -1,12 +1,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 const authState: { user: { id: string } | null } = { user: { id: "u1" } };
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => authState,
 }));
 

@@ -59,8 +59,7 @@ import {
 } from "@/lib/selection-reference";
 import { ModelCapabilityNotice } from "@/components/model-capability-notice";
 import { toast } from "sonner";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToolSetsUnavailableNotice } from "@/components/tool-sets-unavailable-notice";

@@ -35,7 +35,7 @@ import {
   type EventTriggerConfig,
 } from "@platypus/schemas";
 import Link from "next/link";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { describeSchedule } from "@/lib/cron-utils";
 import { toast } from "sonner";
 import { AgentAvatar } from "@/components/agent-avatar";

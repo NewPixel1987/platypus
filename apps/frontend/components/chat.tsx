@@ -49,8 +49,7 @@ import { ATTACHMENTS_ONLY_TEXT } from "@/lib/message-parts";
 import { useChatTitlePoll } from "@/hooks/use-chat-title-poll";
 import { useChatUI } from "@/hooks/use-chat-ui";
 import { Dialog, DialogTrigger } from "./ui/dialog";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { canSendChatMessages } from "@/lib/authorization";
 import { NoProvidersEmptyState } from "./no-providers-empty-state";
 import { AgentInfoDialog } from "./agent-info-dialog";
@@ -58,7 +57,7 @@ import {
   ChatSettingsDialog,
   CHAT_MAX_STEPS_ERROR,
 } from "./chat-settings-dialog";
-import { ErrorDialog } from "./error-dialog";
+import { ChatErrorDialog } from "./chat-error-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -783,7 +782,7 @@ export const Chat = ({
       </div>
 
       {/* Error Dialog */}
-      <ErrorDialog
+      <ChatErrorDialog
         isOpen={showErrorDialog}
         onOpenChange={setShowErrorDialog}
         error={error}

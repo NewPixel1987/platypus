@@ -2,13 +2,12 @@
 
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
 import { type InvitationListItem } from "@platypus/schemas";
 import { Button } from "@/components/ui/button";
 import { Mail, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import useSWR from "swr";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { format } from "date-fns";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useState } from "react";

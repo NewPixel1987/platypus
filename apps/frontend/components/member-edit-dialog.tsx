@@ -19,7 +19,7 @@ import {
 import { Field, FieldLabel, FieldGroup, FieldSet } from "@/components/ui/field";
 import { useState } from "react";
 import { type OrgMemberListItem } from "@platypus/schemas";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
 import { toast } from "sonner";

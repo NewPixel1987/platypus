@@ -3,11 +3,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // --- Module mocks ------------------------------------------------------------
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1" } }),
 }));
 

@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import {
   Dialog,
@@ -11,17 +13,17 @@ import { Button } from "./ui/button";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import { TriangleAlert, Copy, Check } from "lucide-react";
 
-interface ErrorDialogProps {
+interface ChatErrorDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   error: Error | undefined;
 }
 
-export const ErrorDialog = ({
+export const ChatErrorDialog = ({
   isOpen,
   onOpenChange,
   error,
-}: ErrorDialogProps) => {
+}: ChatErrorDialogProps) => {
   const [copied, setCopied] = useState(false);
   const message = error?.message || "An unknown error occurred.";
 

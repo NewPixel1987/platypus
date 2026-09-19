@@ -4,11 +4,8 @@ import type { MCP } from "@platypus/schemas";
 
 // --- Module mocks ------------------------------------------------------------
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({
     user: { id: "u1" },
     actor: "org-admin",

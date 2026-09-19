@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Provider, ToolSet } from "@platypus/schemas";
 import {
   navigationMock,
-  configMock,
   authMock,
   toastMock,
   swrMock,
@@ -19,7 +18,6 @@ import {
 // --- Module mocks ------------------------------------------------------------
 
 vi.mock("next/navigation", () => navigationMock);
-vi.mock("@/app/client-context", () => configMock);
 vi.mock("@/components/auth-provider", () => authMock);
 vi.mock("sonner", () => toastMock);
 // useSWR is called for providers, skills, agents, and (when editing) the

@@ -3,7 +3,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { MCP } from "@platypus/schemas";
 import {
   navigationMock,
-  configMock,
   authMock,
   toastMock,
   swrMock,
@@ -15,7 +14,6 @@ import {
 // --- Module mocks ------------------------------------------------------------
 
 vi.mock("next/navigation", () => navigationMock);
-vi.mock("@/app/client-context", () => configMock);
 vi.mock("@/components/auth-provider", () => authMock);
 vi.mock("sonner", () => toastMock);
 vi.mock("swr", () => swrMock);

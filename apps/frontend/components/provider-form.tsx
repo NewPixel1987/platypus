@@ -79,8 +79,7 @@ import {
   parseContextWindowInput,
 } from "@/lib/context-window";
 import { toast } from "sonner";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
 
 /**

@@ -27,8 +27,7 @@ import {
   toastGuidanceOrError,
 } from "@/lib/apply-write-outcome";
 import { toast } from "sonner";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { AgentAvatar } from "@/components/agent-avatar";
 
 const RETRACTABLE_FIELDS = [

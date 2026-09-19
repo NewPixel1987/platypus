@@ -13,8 +13,7 @@ import type { LayoutItem } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import { fetcher, joinUrl, cn } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   widgetTypeRegistry,
   type Dashboard,

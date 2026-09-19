@@ -55,10 +55,8 @@ vi.mock("swr", () => ({
   default: () => ({ data: { results: state.triggers }, isLoading: false }),
 }));
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "https://backend.example",
-}));
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "https://backend.example",
   useAuth: () => ({ user: { id: "user-1" } }),
 }));
 vi.mock("@/components/back-button", () => ({

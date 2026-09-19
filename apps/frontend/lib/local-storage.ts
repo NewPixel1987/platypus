@@ -43,13 +43,3 @@ export function getWithExpiry<T>(key: string): T | null {
     return null;
   }
 }
-
-export function removeItem(key: string): void {
-  if (!isClient) return;
-
-  try {
-    localStorage.removeItem(key);
-  } catch (error) {
-    console.warn(`Failed to remove from localStorage: ${error}`);
-  }
-}

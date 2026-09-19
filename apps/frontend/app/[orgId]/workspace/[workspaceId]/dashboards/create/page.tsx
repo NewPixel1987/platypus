@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { FormTextField } from "@/components/form-text-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
 import type { Dashboard } from "@platypus/schemas";

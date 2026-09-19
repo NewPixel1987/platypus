@@ -64,8 +64,7 @@ import {
 } from "lucide-react";
 import { cn, fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AgentAvatar } from "@/components/agent-avatar";

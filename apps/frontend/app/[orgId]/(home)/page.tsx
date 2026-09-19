@@ -6,8 +6,7 @@ import Link from "next/link";
 import { Plus, Settings, FolderClosed } from "lucide-react";
 import useSWR from "swr";
 import { fetcher, joinUrl } from "@/lib/utils";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { canCreateWorkspace } from "@/lib/authorization";
 import {
   Empty,

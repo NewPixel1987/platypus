@@ -43,8 +43,7 @@ import type {
 } from "@platypus/schemas";
 import { cn, fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity, writeAt, type Scope } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { KanbanColumnComponent } from "@/components/kanban-column";
 import { KanbanCardComponent } from "@/components/kanban-card";
 import { KanbanCardDialog } from "@/components/kanban-card-dialog";

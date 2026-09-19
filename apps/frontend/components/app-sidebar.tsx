@@ -7,7 +7,7 @@ import { fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
 import { toast } from "sonner";
 import type { Workspace, ChatListItem, Organization } from "@platypus/schemas";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   Sidebar,
   SidebarContent,
@@ -61,7 +61,6 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
-import { useBackendUrl } from "@/app/client-context";
 import { TagInput } from "@/components/tag-input";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {

@@ -2,8 +2,7 @@
 
 import useSWR from "swr";
 import { Blocks, Container, Globe, Wrench } from "lucide-react";
-import { useAuth } from "@/components/auth-provider";
-import { useBackendUrl } from "@/app/client-context";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { cn, fetcher, joinUrl } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {

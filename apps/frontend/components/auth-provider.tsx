@@ -52,6 +52,7 @@ interface Session {
 }
 
 interface AuthContextType {
+  backendUrl: string;
   user: User | null;
   session: Session | null;
   isPending: boolean;
@@ -197,6 +198,7 @@ export function AuthProvider({
   return (
     <AuthContext.Provider
       value={{
+        backendUrl,
         user: (data?.user as unknown as User) ?? null,
         session: (data?.session as unknown as Session) ?? null,
         isPending,
@@ -224,4 +226,8 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+export function useBackendUrl() {
+  return useAuth().backendUrl;
 }

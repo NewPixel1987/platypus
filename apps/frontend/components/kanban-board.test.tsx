@@ -21,11 +21,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/org1/workspace/ws1/boards/board-1",
 }));
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1", name: "Tester" } }),
 }));
 

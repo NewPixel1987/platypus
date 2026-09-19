@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
 import { type Context } from "@platypus/schemas";
 import { ExpandableTextarea } from "@/components/expandable-textarea";
 import { Globe, FolderClosed } from "lucide-react";

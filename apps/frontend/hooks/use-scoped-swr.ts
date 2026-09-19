@@ -1,6 +1,5 @@
 import useSWR, { type SWRConfiguration, type SWRResponse } from "swr";
-import { useAuth } from "@/components/auth-provider";
-import { useBackendUrl } from "@/app/client-context";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { fetcher } from "@/lib/utils";
 import { scopedUrl, type Scope } from "@/lib/api-write";
 

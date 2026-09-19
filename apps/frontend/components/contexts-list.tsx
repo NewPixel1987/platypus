@@ -3,10 +3,9 @@
 import { Item, ItemActions, ItemContent, ItemTitle } from "./ui/item";
 import useSWR from "swr";
 import { cn, fetcher, joinUrl } from "../lib/utils";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { Pencil, Plus, Folder } from "lucide-react";
 import Link from "next/link";
-import { useBackendUrl } from "@/app/client-context";
 import { Button } from "./ui/button";
 import type { Context } from "@platypus/schemas";
 

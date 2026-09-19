@@ -23,11 +23,10 @@ import { vi, type Mock } from "vitest";
  *
  * ```ts
  * import {
- *   navigationMock, configMock, authMock, toastMock, swrMock,
+ *   navigationMock, authMock, toastMock, swrMock,
  * } from "@/lib/form-test-harness";
  *
  * vi.mock("next/navigation", () => navigationMock);
- * vi.mock("@/app/client-context", () => configMock);
  * vi.mock("@/components/auth-provider", () => authMock);
  * vi.mock("sonner", () => toastMock);
  * vi.mock("swr", () => swrMock);
@@ -47,8 +46,10 @@ export const toastInfo = vi.fn();
 export const configuredMutate = vi.fn();
 
 export const navigationMock = { useRouter: () => ({ push }) };
-export const configMock = { useBackendUrl: () => "http://test" };
-export const authMock = { useAuth: () => ({ user: { id: "u1" } }) };
+export const authMock = {
+  useAuth: () => ({ user: { id: "u1" } }),
+  useBackendUrl: () => "http://test",
+};
 export const toastMock = {
   toast: { error: toastError, success: toastSuccess, info: toastInfo },
 };

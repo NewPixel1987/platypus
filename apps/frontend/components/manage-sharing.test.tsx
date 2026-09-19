@@ -18,7 +18,7 @@ beforeAll(() => {
 
 // --- Module mocks ------------------------------------------------------------
 
-vi.mock("@/app/client-context", () => ({
+vi.mock("@/components/auth-provider", () => ({
   useBackendUrl: () => "http://test",
 }));
 

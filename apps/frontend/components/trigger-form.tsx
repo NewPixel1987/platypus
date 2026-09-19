@@ -49,8 +49,7 @@ import {
   applyWriteOutcome,
   applyDeleteOutcome,
 } from "@/lib/apply-write-outcome";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { Cron } from "croner";
 import { format } from "date-fns";
 import { toast } from "sonner";

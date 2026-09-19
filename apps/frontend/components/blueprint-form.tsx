@@ -39,8 +39,7 @@ import {
   applyWriteOutcome,
   applyDeleteOutcome,
 } from "@/lib/apply-write-outcome";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 
 // The composer lists every Shared resource the org owns, grouped by type. A
 // Blueprint may only list org-scoped resources, so these org collections are

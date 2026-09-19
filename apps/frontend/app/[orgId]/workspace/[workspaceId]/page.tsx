@@ -26,8 +26,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { NoProvidersEmptyState } from "@/components/no-providers-empty-state";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   type Workspace as WorkspaceType,
   type Organization,

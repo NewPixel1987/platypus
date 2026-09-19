@@ -4,7 +4,7 @@ import { Provider } from "@platypus/schemas";
 import { Item, ItemActions, ItemContent, ItemTitle } from "./ui/item";
 import useSWR from "swr";
 import { cn, fetcher, joinUrl } from "../lib/utils";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   canConfigureWorkspaceResource,
   canManageSharedResource,
@@ -18,7 +18,6 @@ import {
   Unlink,
 } from "lucide-react";
 import Link from "next/link";
-import { useBackendUrl } from "@/app/client-context";
 import { Button } from "./ui/button";
 import { NoProvidersEmptyState } from "./no-providers-empty-state";
 import {

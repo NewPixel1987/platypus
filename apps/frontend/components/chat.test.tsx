@@ -80,8 +80,8 @@ vi.mock("@ai-sdk/react", () => ({
   }),
 }));
 
-vi.mock("@/app/client-context", () => ({ useBackendUrl: () => "http://test" }));
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1" }, ownsWorkspace: true }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
@@ -205,8 +205,8 @@ vi.mock("./chat-settings-dialog", () => ({
   ChatSettingsDialog: () => null,
   CHAT_MAX_STEPS_ERROR: "bad max steps",
 }));
-vi.mock("./error-dialog", () => ({
-  ErrorDialog: ({ isOpen }: { isOpen: boolean }) =>
+vi.mock("./chat-error-dialog", () => ({
+  ChatErrorDialog: ({ isOpen }: { isOpen: boolean }) =>
     isOpen ? <div role="dialog">Chat Error</div> : null,
 }));
 
