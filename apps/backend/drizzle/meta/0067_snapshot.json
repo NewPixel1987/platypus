@@ -1,5 +1,5 @@
 {
-  "id": "108c16cf-7cbc-496b-a7e4-15bef6c09deb",
+  "id": "f50ed668-7f12-4031-9e21-fec412ffdd37",
   "prevId": "eb78f7b2-ad14-4b8b-999a-5f2a25a96c4a",
   "version": "7",
   "dialect": "postgresql",
@@ -1128,12 +1128,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp",
@@ -1216,13 +1210,6 @@
           "columns": [
             "organization_id",
             "email"
-          ]
-        },
-        "unique_invitation_token": {
-          "name": "unique_invitation_token",
-          "nullsNotDistinct": false,
-          "columns": [
-            "token"
           ]
         }
       },
@@ -4448,6 +4435,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "impersonated_by": {
+          "name": "impersonated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

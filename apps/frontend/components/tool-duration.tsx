@@ -20,9 +20,11 @@ export const ToolDuration = ({ durationMs }: ToolDurationProps) => {
   if (durationMs === undefined) return null;
 
   // A sibling of the name rather than part of it: the name truncates, and the
-  // duration is the last thing that should disappear when it does.
+  // duration is the last thing that should disappear when it does. Sized like
+  // the status beside it; the dash reads as "name — duration" now the row's
+  // trailing items sit inline after the name rather than at its far edge.
   return (
-    <span className="shrink-0 font-normal text-sm text-muted-foreground">
+    <span className="shrink-0 text-muted-foreground text-xs">
       &mdash; {formatToolDuration(durationMs)}
     </span>
   );
