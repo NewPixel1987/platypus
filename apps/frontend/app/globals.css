@@ -46,6 +46,8 @@
   --chart-4: oklch(0.6 0.22 15);
   --chart-5: oklch(0.65 0.18 50);
   --sidebar: oklch(0.98 0 0);
+  /* A panel opening over the sidebar, a shade darker so its edges read. */
+  --sidebar-panel: oklch(0.95 0 0);
   --sidebar-foreground: oklch(0.141 0.005 220);
   --sidebar-primary: oklch(0.546 0.245 180);
   --sidebar-primary-foreground: oklch(0.97 0.014 180);
@@ -82,6 +84,7 @@
   --chart-4: oklch(0.7 0.2 15);
   --chart-5: oklch(0.72 0.18 50);
   --sidebar: oklch(0.25 0.004 220);
+  --sidebar-panel: oklch(0.21 0.004 220);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.623 0.214 180);
   --sidebar-primary-foreground: oklch(0.97 0.014 180);
@@ -139,6 +142,7 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
+  --color-sidebar-panel: var(--sidebar-panel);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);

@@ -10,8 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
 import type { Dashboard } from "@platypus/schemas";
@@ -109,7 +108,7 @@ const DashboardSettingsPage = ({
     <ResourcePage
       backFallbackHref={`/${orgId}/workspace/${workspaceId}/dashboards/${dashboardId}`}
       title="Dashboard Settings"
-      variant="settings"
+      variant="stacked"
     >
       <form onSubmit={handleSave} className="space-y-4">
         <div className="space-y-2">

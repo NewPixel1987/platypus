@@ -3,11 +3,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { MCP } from "@platypus/schemas";
 import {
   navigationMock,
-  configMock,
   authMock,
   toastMock,
   swrMock,
   setData,
+  setError,
   resetFormHarness,
   stubRejectedSave,
 } from "@/lib/form-test-harness";
@@ -15,7 +15,6 @@ import {
 // --- Module mocks ------------------------------------------------------------
 
 vi.mock("next/navigation", () => navigationMock);
-vi.mock("@/app/client-context", () => configMock);
 vi.mock("@/components/auth-provider", () => authMock);
 vi.mock("sonner", () => toastMock);
 vi.mock("swr", () => swrMock);
@@ -102,5 +101,35 @@ describe("McpForm locked delete", () => {
       ),
     );
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("McpForm detail read failures", () => {
+  afterEach(() => {
+    resetFormHarness();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a not-found state with the way back when the MCP is gone", () => {
+    setError({ status: 404 });
+
+    render(<McpForm orgId="org1" workspaceId="ws1" mcpId="m1" />);
+
+    expect(screen.getByText("Not found")).toBeInTheDocument();
+    expect(screen.getByText(/no longer exists/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Back to MCP servers" }),
+    ).toHaveAttribute("href", "/org1/workspace/ws1/settings/mcp");
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+  });
+
+  it("shows the failure state on a server error, not a blank editable form", () => {
+    setError({ status: 500 });
+
+    render(<McpForm orgId="org1" mcpId="m1" />);
+
+    expect(screen.getByText("Couldn't load")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
 });

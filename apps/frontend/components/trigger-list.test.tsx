@@ -10,11 +10,8 @@ beforeAll(installRadixPointerPolyfills);
 
 // --- Module mocks ------------------------------------------------------------
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1" } }),
 }));
 
@@ -89,11 +86,11 @@ describe("TriggerList delete", () => {
     );
   });
 
-  it("does not revalidate when delete is refused", async () => {
+  it("surfaces the backend's reason inline and does not revalidate when delete is refused", async () => {
     triggers = [cronTrigger];
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(jsonResponse(409, { error: "In use" }));
+      .mockResolvedValue(jsonResponse(409, { error: "Trigger is in use" }));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<TriggerList orgId="org1" workspaceId="ws1" />);
@@ -101,8 +98,12 @@ describe("TriggerList delete", () => {
     fireEvent.click(screen.getByText("Delete"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByText("Trigger is in use")).toBeInTheDocument(),
+    );
     expect(mutateSpy).not.toHaveBeenCalled();
+    // The dialog stays open on a refused delete, letting the user retry.
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
   });
 });
 

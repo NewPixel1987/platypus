@@ -28,7 +28,7 @@ import {
 import { useState } from "react";
 import { cn, fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 
 type ResourceType = "mcp" | "provider" | "skill" | "agent";
 

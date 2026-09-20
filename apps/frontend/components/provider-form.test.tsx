@@ -9,11 +9,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1" } }),
 }));
 

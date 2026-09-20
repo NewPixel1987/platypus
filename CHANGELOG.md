@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.7.3](https://github.com/willdady/platypus/compare/v3.7.2...v3.7.3) (2026-09-19)
+
+
+### Bug Fixes
+
+* **frontend:** give resource forms failure states and route workspace contexts through the outcome seam ([#886](https://github.com/willdady/platypus/issues/886)) ([c9b6123](https://github.com/willdady/platypus/commit/c9b61230b939873390658ebb5a8881fbe25123ca))
+* **frontend:** reduce dashboard grid re-renders and collapse chart widgets ([#888](https://github.com/willdady/platypus/issues/888)) ([fb2bea3](https://github.com/willdady/platypus/commit/fb2bea36e163b7f5cb6de45b9e945ec750b9ed1a))
+* **frontend:** repair chat attachments, settings sync, and per-token re-renders ([#884](https://github.com/willdady/platypus/issues/884)) ([05090ec](https://github.com/willdady/platypus/commit/05090ec9288cc018af15ba7a88a1996b1f71af3f))
+* **frontend:** stabilize kanban drag rendering and deduplicate the card dialog ([#887](https://github.com/willdady/platypus/issues/887)) ([1e0f973](https://github.com/willdady/platypus/commit/1e0f97342dc416df5fad11b4ca3d0be963b88831))
+
+## [3.7.2](https://github.com/willdady/platypus/compare/v3.7.1...v3.7.2) (2026-09-19)
+
+
+### Bug Fixes
+
+* **frontend:** dim the sidebar behind the workspace switcher on a phone ([#865](https://github.com/willdady/platypus/issues/865)) ([44a8699](https://github.com/willdady/platypus/commit/44a8699b9e283f1bd538fc36339d56add6d8ce53))
+* **frontend:** give the workspace switcher panel its own surface colour ([#867](https://github.com/willdady/platypus/issues/867)) ([5036c7e](https://github.com/willdady/platypus/commit/5036c7ef1d2f1c67f91e5c77e1b035a21774bee2))
+* **frontend:** hold the reply's action bar until the turn has a first chunk ([#861](https://github.com/willdady/platypus/issues/861)) ([1493de3](https://github.com/willdady/platypus/commit/1493de3a867f57c1605d9eb1bfec03bb33f790b0))
+* **frontend:** keep a side gutter on the trigger runs pages at every width ([#864](https://github.com/willdady/platypus/issues/864)) ([c6b7a27](https://github.com/willdady/platypus/commit/c6b7a2758543dcdd369ebf483c587eb78308bd88))
+* **frontend:** keep the trigger run row's actions inside the row on a phone ([#863](https://github.com/willdady/platypus/issues/863)) ([95ec6b0](https://github.com/willdady/platypus/commit/95ec6b0ca24b7238c817b64418ee92f1427d22bb))
+* **frontend:** show a chat in the sidebar without waiting on its title ([#866](https://github.com/willdady/platypus/issues/866)) ([b66aa0d](https://github.com/willdady/platypus/commit/b66aa0d22711fc95f2a941018d7b7a9f75c1ae70))
+
 ## [3.7.1](https://github.com/willdady/platypus/compare/v3.7.0...v3.7.1) (2026-09-19)
 
 

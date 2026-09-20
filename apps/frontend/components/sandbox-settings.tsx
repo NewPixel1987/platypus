@@ -7,9 +7,8 @@ import { toast } from "sonner";
 import { Box, Plus, Trash2, X } from "lucide-react";
 import { type Sandbox } from "@platypus/schemas";
 
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { canConfigureSandbox } from "@/lib/authorization";
-import { useBackendUrl } from "@/app/client-context";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
 import { Button } from "@/components/ui/button";

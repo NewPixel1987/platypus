@@ -31,8 +31,8 @@ import {
 } from "@/components/ui/command";
 import { Agent, KanbanBoard, Trigger } from "@platypus/schemas";
 import { fetcher, joinUrl } from "@/lib/utils";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
+import { userRoutes, workspaceRoutes } from "@/lib/routes";
 
 interface CommandMenuProps {
   orgId: string;
@@ -44,6 +44,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
   const router = useRouter();
   const backendUrl = useBackendUrl();
   const { user } = useAuth();
+  const routes = workspaceRoutes(orgId, workspaceId);
 
   // Fetch agents for the workspace
   const { data: agentsData } = useSWR<{ results: Agent[] }>(
@@ -110,9 +111,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}`),
-              );
+              runCommand(() => router.push(routes.root));
             }}
           >
             <Home />
@@ -130,9 +129,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/chat`),
-              );
+              runCommand(() => router.push(routes.chat.root));
             }}
           >
             <BotMessageSquare />
@@ -141,9 +138,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/agents/create`),
-              );
+              runCommand(() => router.push(routes.agents.create));
             }}
           >
             <Bot />
@@ -152,9 +147,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/skills/create`),
-              );
+              runCommand(() => router.push(routes.skills.create));
             }}
           >
             <Sparkles />
@@ -163,9 +156,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/boards/create`),
-              );
+              runCommand(() => router.push(routes.boards.create));
             }}
           >
             <KanbanSquare />
@@ -174,11 +165,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(
-                  `/${orgId}/workspace/${workspaceId}/dashboards/create`,
-                ),
-              );
+              runCommand(() => router.push(routes.dashboards.create));
             }}
           >
             <LayoutDashboard />
@@ -187,11 +174,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(
-                  `/${orgId}/workspace/${workspaceId}/triggers/create`,
-                ),
-              );
+              runCommand(() => router.push(routes.triggers.create));
             }}
           >
             <Zap />
@@ -200,9 +183,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/trigger-runs`),
-              );
+              runCommand(() => router.push(routes.triggerRuns.root));
             }}
           >
             <History />
@@ -211,11 +192,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(
-                  `/${orgId}/workspace/${workspaceId}/settings/webhooks/create`,
-                ),
-              );
+              runCommand(() => router.push(routes.settings.createWebhook));
             }}
           >
             <Radio />
@@ -224,7 +201,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() => router.push("/settings"));
+              runCommand(() => router.push(userRoutes.profile));
             }}
           >
             <Settings />
@@ -233,9 +210,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/settings`),
-              );
+              runCommand(() => router.push(routes.settings.root));
             }}
           >
             <Settings />
@@ -244,11 +219,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(
-                  `/${orgId}/workspace/${workspaceId}/settings/providers`,
-                ),
-              );
+              runCommand(() => router.push(routes.settings.providers));
             }}
           >
             <Unplug />
@@ -257,9 +228,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(`/${orgId}/workspace/${workspaceId}/settings/mcp`),
-              );
+              runCommand(() => router.push(routes.settings.mcp));
             }}
           >
             <Wrench />
@@ -283,11 +252,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
           <CommandItem
             className="cursor-pointer"
             onSelect={() => {
-              runCommand(() =>
-                router.push(
-                  `/${orgId}/workspace/${workspaceId}/settings/about`,
-                ),
-              );
+              runCommand(() => router.push(routes.settings.about));
             }}
           >
             <Info />
@@ -302,9 +267,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
                 className="cursor-pointer"
                 onSelect={() => {
                   runCommand(() =>
-                    router.push(
-                      `/${orgId}/workspace/${workspaceId}/chat?agentId=${agent.id}`,
-                    ),
+                    router.push(`${routes.chat.root}?agentId=${agent.id}`),
                   );
                 }}
               >
@@ -321,11 +284,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
                 key={board.id}
                 className="cursor-pointer"
                 onSelect={() => {
-                  runCommand(() =>
-                    router.push(
-                      `/${orgId}/workspace/${workspaceId}/boards/${board.id}`,
-                    ),
-                  );
+                  runCommand(() => router.push(routes.boards.detail(board.id)));
                 }}
               >
                 <KanbanSquare />
@@ -342,9 +301,7 @@ export function CommandMenu({ orgId, workspaceId }: CommandMenuProps) {
                 className="cursor-pointer"
                 onSelect={() => {
                   runCommand(() =>
-                    router.push(
-                      `/${orgId}/workspace/${workspaceId}/triggers/${trigger.id}`,
-                    ),
+                    router.push(routes.triggers.detail(trigger.id)),
                   );
                 }}
               >

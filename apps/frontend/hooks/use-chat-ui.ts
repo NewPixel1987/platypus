@@ -14,8 +14,6 @@ export const useChatUI = (
 ) => {
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [isAgentInfoDialogOpen, setIsAgentInfoDialogOpen] = useState(false);
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const [isChatAdvancedOpen, setIsChatAdvancedOpen] = useState(false);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -32,10 +30,6 @@ export const useChatUI = (
     setIsSettingsDialogOpen,
     isAgentInfoDialogOpen,
     setIsAgentInfoDialogOpen,
-    isAdvancedOpen,
-    setIsAdvancedOpen,
-    isChatAdvancedOpen,
-    setIsChatAdvancedOpen,
     showErrorDialog,
     setShowErrorDialog,
     copiedMessageId,

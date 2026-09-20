@@ -1,7 +1,7 @@
 "use client";
 
 import { Workspace } from "@platypus/schemas";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   Item,
   ItemActions,
@@ -13,7 +13,6 @@ import useSWR from "swr";
 import { cn, fetcher, joinUrl } from "../lib/utils";
 import { ChevronRight, FolderClosed } from "lucide-react";
 import Link from "next/link";
-import { useBackendUrl } from "@/app/client-context";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const WorkspaceList = ({

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ChangePasswordDialog } from "./change-password-dialog";
 
-vi.mock("@/app/client-context", () => ({
+vi.mock("@/components/auth-provider", () => ({
   useBackendUrl: () => "http://localhost:3000",
 }));
 

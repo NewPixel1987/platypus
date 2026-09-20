@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
-import ClientProvider from "./client-context";
 import { AuthProvider } from "@/components/auth-provider";
 
 const geistSans = Geist({
@@ -85,7 +84,7 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <ClientProvider backendUrl={backendUrl}>{children}</ClientProvider>
+            {children}
             <Toaster position="top-right" />
           </ThemeProvider>
         </AuthProvider>

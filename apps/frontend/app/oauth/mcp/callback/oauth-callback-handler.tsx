@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
 import { Loader2 } from "lucide-react";

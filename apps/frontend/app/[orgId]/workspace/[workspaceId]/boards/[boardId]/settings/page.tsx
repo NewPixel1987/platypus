@@ -7,8 +7,7 @@ import type { KanbanBoardState } from "@platypus/schemas";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
 import { applyDeleteOutcome } from "@/lib/apply-write-outcome";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { ResourcePage } from "@/components/resource-page";
 import { KanbanBoardForm } from "@/components/kanban-board-form";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -70,7 +69,7 @@ const BoardSettingsPage = ({
     <ResourcePage
       backFallbackHref={`/${orgId}/workspace/${workspaceId}/boards/${boardId}`}
       title="Board Settings"
-      variant="settings"
+      variant="stacked"
     >
       <KanbanBoardForm
         orgId={orgId}

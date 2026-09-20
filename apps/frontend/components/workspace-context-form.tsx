@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useResetOnChange } from "@/hooks/use-reset-on-change";
+import { useEntityDelete, useEntityForm } from "@/hooks/use-entity-form";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Field, FieldLabel, FieldGroup, FieldSet } from "@/components/ui/field";
+import {
+  Field,
+  FieldError,
+  FieldLabel,
+  FieldGroup,
+  FieldSet,
+} from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -14,86 +19,159 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Button } from "@/components/ui/button";
+import { EntityDeleteDialog } from "@/components/entity-delete-dialog";
+import { DetailFormState } from "@/components/detail-form-state";
 import { ExpandableTextarea } from "@/components/expandable-textarea";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import useSWR from "swr";
 import { FormFooterButtons } from "@/components/form-footer-buttons";
 import type { Organization, Workspace, Context } from "@platypus/schemas";
+import { CONTEXT_MAX_LENGTH } from "@platypus/schemas";
 
 interface WorkspaceWithOrg extends Workspace {
   organizationName?: string;
 }
+
+const RETRACTABLE_FIELDS = ["content", "workspaceId"] as const;
+
+const INITIAL_DATA = {
+  content: "",
+  workspaceId: "",
+};
 
 export const WorkspaceContextForm = ({ contextId }: { contextId?: string }) => {
   const router = useRouter();
   const backendUrl = useBackendUrl();
   const { user } = useAuth();
 
-  const [formData, setFormData] = useState({
-    content: "",
-    workspaceId: "",
+  const contextsUrl = joinUrl(backendUrl, "/users/me/contexts");
+  const contextUrl = contextId
+    ? joinUrl(backendUrl, `/users/me/contexts/${contextId}`)
+    : null;
+
+  const {
+    formData,
+    setFormData,
+    validationErrors,
+    setValidationErrors,
+    isSubmitting,
+    setField,
+    handleChange,
+    submit,
+  } = useEntityForm<typeof INITIAL_DATA, Context>({
+    initialData: INITIAL_DATA,
+    entity: "contexts",
+    scope: {},
+    id: contextId,
+    retractableFields: RETRACTABLE_FIELDS,
+    write: (data) =>
+      contextId && contextUrl
+        ? writeAt<Context>(contextUrl, {
+            method: "PUT",
+            data: { content: data.content },
+            revalidateKeys: [contextsUrl, contextUrl],
+          })
+        : writeAt<Context>(contextsUrl, {
+            method: "POST",
+            data: {
+              content: data.content,
+              workspaceId: data.workspaceId,
+            },
+            revalidateKeys: [contextsUrl],
+          }),
+    // A create's 409 is "you already have a context for this workspace", so
+    // it belongs on the Workspace field; an update has no such field.
+    conflictField: contextId ? null : "workspaceId",
+    successMessage: () =>
+      contextId ? "Workspace context updated" : "Workspace context created",
+    onSuccess: () => router.push("/settings/contexts"),
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+
+  const {
+    isDeleteDialogOpen,
+    setIsDeleteDialogOpen,
+    isDeleting,
+    deleteError,
+    openDeleteDialog,
+    handleDelete,
+  } = useEntityDelete({
+    entity: "contexts",
+    scope: {},
+    id: contextId,
+    write: () =>
+      writeAt(contextUrl as string, {
+        method: "DELETE",
+        revalidateKeys: [contextsUrl],
+      }),
+    successMessage: "Context deleted",
+    onSuccess: () => router.push("/settings/contexts"),
+  });
 
   // Fetch existing context if editing
-  const { data: contextData } = useSWR<Context>(
-    contextId && user
-      ? joinUrl(backendUrl, `/users/me/contexts/${contextId}`)
-      : null,
-    fetcher,
-  );
+  const {
+    data: contextData,
+    error: contextError,
+    isLoading: contextLoading,
+  } = useSWR<Context>(contextId && user ? contextUrl : null, fetcher);
 
   // Fetch organizations
-  const { data: orgs } = useSWR<{ results: Organization[] }>(
+  const {
+    data: orgs,
+    error: orgsError,
+    mutate: mutateOrgs,
+  } = useSWR<{ results: Organization[] }>(
     user ? joinUrl(backendUrl, "/organizations") : null,
     fetcher,
   );
 
   // Fetch all contexts to filter out workspaces that already have contexts
   const { data: allContexts } = useSWR<{ results: Context[] }>(
-    user ? joinUrl(backendUrl, "/users/me/contexts") : null,
+    user ? contextsUrl : null,
     fetcher,
   );
 
-  // Fetch workspaces for all orgs
-  const [workspaces, setWorkspaces] = useState<WorkspaceWithOrg[]>([]);
+  // Every workspace across every organization the user belongs to. The API has
+  // no user-scoped workspace route, so the per-organization fan-out lives in
+  // one SWR fetcher: the organization list is the key, so a changed list is a
+  // new request, and a failure reaches the form as `error` rather than a
+  // `console.error` in an effect that cannot cancel itself.
+  const fetchOrgWorkspaces = async (
+    organizations: Organization[] | null,
+  ): Promise<WorkspaceWithOrg[]> => {
+    if (!organizations) return [];
 
-  useEffect(() => {
-    if (!orgs?.results || !backendUrl) return;
+    const perOrg = await Promise.all(
+      organizations.map(async (org) => {
+        const data = (await fetcher(
+          joinUrl(backendUrl, `/organizations/${org.id}/workspaces`),
+        )) as { results: Workspace[] };
+        return data.results.map((workspace) => ({
+          ...workspace,
+          organizationName: org.name,
+        }));
+      }),
+    );
+    return perOrg.flat();
+  };
 
-    const fetchWorkspaces = async () => {
-      const allWorkspaces: WorkspaceWithOrg[] = [];
+  const {
+    data: workspacesData,
+    error: workspacesError,
+    mutate: mutateWorkspaces,
+  } = useSWR<WorkspaceWithOrg[]>(orgs?.results ?? null, fetchOrgWorkspaces);
+  const workspaces = workspacesData ?? [];
 
-      for (const org of orgs.results) {
-        try {
-          const response = await fetch(
-            joinUrl(backendUrl, `/organizations/${org.id}/workspaces`),
-            { credentials: "include" },
-          );
-          if (response.ok) {
-            const data = await response.json();
-            const orgWorkspaces = data.results.map((w: Workspace) => ({
-              ...w,
-              organizationName: org.name,
-            }));
-            allWorkspaces.push(...orgWorkspaces);
-          }
-        } catch (error) {
-          console.error(`Failed to fetch workspaces for org ${org.id}:`, error);
-        }
-      }
-
-      setWorkspaces(allWorkspaces);
-    };
-
-    fetchWorkspaces();
-  }, [orgs, backendUrl]);
+  // The picker depends on two reads — the organizations and their workspaces —
+  // and a failure in either leaves it with nothing to offer, so both surface
+  // the same notice and Retry.
+  const workspacesLoadError = orgsError ?? workspacesError;
+  const retryWorkspaces = () => {
+    mutateOrgs();
+    mutateWorkspaces();
+  };
 
   // Set form data when editing
   useResetOnChange(contextData, () => {
@@ -115,172 +193,144 @@ export const WorkspaceContextForm = ({ contextId }: { contextId?: string }) => {
     (w) => !existingWorkspaceIds.has(w.id),
   );
 
+  const groupedWorkspaces = availableWorkspaces.reduce<
+    Record<string, WorkspaceWithOrg[]>
+  >((acc, workspace) => {
+    const orgName = workspace.organizationName || "Unknown Organization";
+    if (!acc[orgName]) acc[orgName] = [];
+    acc[orgName].push(workspace);
+    return acc;
+  }, {});
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.workspaceId) {
-      toast.error("Please select a workspace");
+      setValidationErrors({ workspaceId: "Select a workspace" });
       return;
     }
 
-    setIsSubmitting(true);
-
-    if (contextId) {
-      // Update existing context (workspaceId cannot be changed)
-      const outcome = await writeAt(
-        joinUrl(backendUrl, `/users/me/contexts/${contextId}`),
-        { method: "PUT", data: { content: formData.content } },
-      );
-      if (outcome.outcome === "success") {
-        toast.success("Workspace context updated");
-        router.push("/settings/contexts");
-      } else {
-        toast.error(outcome.message);
-      }
-    } else {
-      // Create new context
-      const outcome = await writeAt(joinUrl(backendUrl, "/users/me/contexts"), {
-        method: "POST",
-        data: {
-          content: formData.content,
-          workspaceId: formData.workspaceId,
-        },
-      });
-      if (outcome.outcome === "success") {
-        toast.success("Workspace context created");
-        router.push("/settings/contexts");
-      } else {
-        toast.error(outcome.message);
-      }
-    }
-    setIsSubmitting(false);
-  };
-
-  const handleDelete = async () => {
-    if (!contextId) return;
-
-    setIsDeleting(true);
-    const outcome = await writeAt(
-      joinUrl(backendUrl, `/users/me/contexts/${contextId}`),
-      { method: "DELETE" },
-    );
-    if (outcome.outcome === "success") {
-      toast.success("Context deleted");
-      router.push("/settings/contexts");
-    } else {
-      toast.error(outcome.message);
-    }
-    setIsDeleting(false);
+    await submit();
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <FieldSet className="mb-6">
-        <FieldGroup className="gap-4">
-          {contextId ? (
-            <>
-              <Field>
-                <FieldLabel>Organization</FieldLabel>
-                <div className="text-sm text-muted-foreground">
-                  {(contextData as { organizationName?: string })
-                    ?.organizationName || "\u00A0"}
-                </div>
+    <DetailFormState
+      isLoading={!!contextId && contextLoading}
+      error={contextError}
+      data={contextData}
+      subject="workspace context"
+      backHref="/settings/contexts"
+      backLabel="Back to contexts"
+    >
+      <form onSubmit={handleSubmit}>
+        <FieldSet className="mb-6">
+          <FieldGroup className="gap-4">
+            {contextId ? (
+              <>
+                <Field>
+                  <FieldLabel>Organization</FieldLabel>
+                  <div className="text-sm text-muted-foreground">
+                    {(contextData as { organizationName?: string })
+                      ?.organizationName || "\u00A0"}
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel>Workspace</FieldLabel>
+                  <div className="text-sm text-muted-foreground">
+                    {(contextData as { workspaceName?: string })
+                      ?.workspaceName || "\u00A0"}
+                  </div>
+                </Field>
+              </>
+            ) : (
+              <Field data-invalid={!!validationErrors.workspaceId}>
+                <FieldLabel htmlFor="workspace">Workspace</FieldLabel>
+                {workspacesLoadError ? (
+                  <div className="flex items-center gap-3 text-sm text-destructive">
+                    <span>Couldn&apos;t load your workspaces.</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={retryWorkspaces}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.workspaceId}
+                    onValueChange={(value) => setField("workspaceId", value)}
+                  >
+                    <SelectTrigger
+                      id="workspace"
+                      className="cursor-pointer"
+                      aria-invalid={!!validationErrors.workspaceId}
+                    >
+                      <SelectValue placeholder="Select workspace" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(groupedWorkspaces).map(
+                        ([orgName, orgWorkspaces]) => (
+                          <SelectGroup key={orgName}>
+                            <SelectLabel>{orgName}</SelectLabel>
+                            {orgWorkspaces.map((workspace) => (
+                              <SelectItem
+                                key={workspace.id}
+                                value={workspace.id}
+                                className="cursor-pointer"
+                              >
+                                {workspace.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+                {validationErrors.workspaceId && (
+                  <FieldError>{validationErrors.workspaceId}</FieldError>
+                )}
               </Field>
-              <Field>
-                <FieldLabel>Workspace</FieldLabel>
-                <div className="text-sm text-muted-foreground">
-                  {(contextData as { workspaceName?: string })?.workspaceName ||
-                    "\u00A0"}
-                </div>
-              </Field>
-            </>
-          ) : (
-            <Field>
-              <FieldLabel htmlFor="workspace">Workspace</FieldLabel>
-              <Select
-                value={formData.workspaceId}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, workspaceId: value })
-                }
-              >
-                <SelectTrigger className="cursor-pointer">
-                  <SelectValue placeholder="Select workspace" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    // Group workspaces by organization
-                    const groupedWorkspaces = availableWorkspaces.reduce(
-                      (acc, workspace) => {
-                        const orgName =
-                          workspace.organizationName || "Unknown Organization";
-                        if (!acc[orgName]) {
-                          acc[orgName] = [];
-                        }
-                        acc[orgName].push(workspace);
-                        return acc;
-                      },
-                      {} as Record<string, WorkspaceWithOrg[]>,
-                    );
+            )}
 
-                    return Object.entries(groupedWorkspaces).map(
-                      ([orgName, orgWorkspaces]) => (
-                        <SelectGroup key={orgName}>
-                          <SelectLabel>{orgName}</SelectLabel>
-                          {orgWorkspaces.map((workspace) => (
-                            <SelectItem
-                              key={workspace.id}
-                              value={workspace.id}
-                              className="cursor-pointer"
-                            >
-                              {workspace.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ),
-                    );
-                  })()}
-                </SelectContent>
-              </Select>
+            <Field data-invalid={!!validationErrors.content}>
+              <ExpandableTextarea
+                id="content"
+                label="Content"
+                placeholder="Enter project-specific context, team conventions, or workspace instructions..."
+                value={formData.content}
+                onChange={handleChange}
+                className="!font-mono"
+                maxLength={CONTEXT_MAX_LENGTH}
+                error={validationErrors.content}
+              />
             </Field>
-          )}
+          </FieldGroup>
+        </FieldSet>
 
-          <Field>
-            <ExpandableTextarea
-              id="content"
-              label="Content"
-              placeholder="Enter project-specific context, team conventions, or workspace instructions..."
-              value={formData.content}
-              onChange={(e) =>
-                setFormData({ ...formData, content: e.target.value })
-              }
-              className="!font-mono"
-              maxLength={1000}
-            />
-          </Field>
-        </FieldGroup>
-      </FieldSet>
+        <FormFooterButtons
+          type="submit"
+          submitText={contextId ? "Update" : "Save"}
+          submitDisabled={isSubmitting}
+          submitClassName=""
+          deleteVisible={!!contextId}
+          deleteDisabled={isSubmitting}
+          deleteClassName=""
+          onDelete={openDeleteDialog}
+        />
 
-      <FormFooterButtons
-        type="submit"
-        submitText={contextId ? "Update" : "Save"}
-        submitDisabled={isSubmitting}
-        submitClassName=""
-        deleteVisible={!!contextId}
-        deleteDisabled={isSubmitting}
-        deleteClassName=""
-        onDelete={() => setIsDeleteDialogOpen(true)}
-      />
-
-      <ConfirmDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-        title="Delete Context"
-        description="Are you sure you want to delete this context? This action cannot be undone."
-        confirmLabel="Delete"
-        confirmVariant="destructive"
-        onConfirm={handleDelete}
-        loading={isDeleting}
-      />
-    </form>
+        <EntityDeleteDialog
+          open={isDeleteDialogOpen}
+          onOpenChange={setIsDeleteDialogOpen}
+          title="Delete Context"
+          description="Are you sure you want to delete this context? This action cannot be undone."
+          onConfirm={handleDelete}
+          loading={isDeleting}
+          error={deleteError}
+        />
+      </form>
+    </DetailFormState>
   );
 };

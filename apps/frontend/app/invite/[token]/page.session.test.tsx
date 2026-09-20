@@ -11,7 +11,6 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ token: `session-test-${sequence}` }),
   useRouter: () => ({ push }),
 }));
-vi.mock("@/app/client-context", () => ({ useBackendUrl: () => backendUrl }));
 
 const WORKSPACE_PATH = "/org-9/workspace/ws-9";
 const acceptedBody = {

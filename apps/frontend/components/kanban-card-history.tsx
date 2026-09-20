@@ -13,7 +13,7 @@ import type {
   KanbanCardHistoryRef,
 } from "@platypus/schemas";
 import { fetcher, joinUrl } from "@/lib/utils";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 
 /**
  * A card's history as the API returns it — timestamps arrive as JSON strings

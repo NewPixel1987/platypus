@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { RevealableInput } from "@/components/ui/revealable-input";
 import { Field, FieldLabel, FieldGroup, FieldSet } from "@/components/ui/field";
 import { useState } from "react";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { joinUrl } from "@/lib/utils";
 import { toast } from "sonner";
 

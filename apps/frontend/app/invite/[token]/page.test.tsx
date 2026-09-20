@@ -19,14 +19,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://backend.test",
-}));
-
 /** The current session; each test sets it before rendering. */
 let mockUser: { email: string } | null = null;
 
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://backend.test",
   useAuth: () => ({
     user: mockUser,
     isPending: false,

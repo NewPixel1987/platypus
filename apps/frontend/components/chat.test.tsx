@@ -39,6 +39,14 @@ const { harness } = vi.hoisted(() => ({
     setMessages: vi.fn(),
     sendMessage: vi.fn(),
     chatMutate: vi.fn(),
+    agentsMutate: vi.fn(),
+    /** Stands in for the info dialog's open state - see the `use-chat-ui` mock. */
+    agentInfoDialogOpen: false,
+    chatMessageRenders: 0,
+    lastChatMessageProps: null as null | {
+      onMessageDelete: (messageId: string) => void;
+      staleToolCallIds?: ReadonlySet<string>;
+    },
   },
 }));
 
@@ -59,7 +67,11 @@ vi.mock("swr", () => ({
       response = {
         data: match ? match[1] : undefined,
         isLoading: false,
-        mutate: key.includes("/chat/") ? harness.chatMutate : vi.fn(),
+        mutate: key.includes("/chat/")
+          ? harness.chatMutate
+          : key.endsWith("/agents")
+            ? harness.agentsMutate
+            : vi.fn(),
       };
       harness.responses.set(key, response);
     }
@@ -80,8 +92,8 @@ vi.mock("@ai-sdk/react", () => ({
   }),
 }));
 
-vi.mock("@/app/client-context", () => ({ useBackendUrl: () => "http://test" }));
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1" }, ownsWorkspace: true }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
@@ -122,16 +134,21 @@ vi.mock("@/components/ai-elements/prompt-input", () => ({
     placeholder,
     disabled,
     status,
+    value,
+    onChange,
   }: {
     placeholder?: string;
     disabled?: boolean;
     status?: string;
+    value?: string;
+    onChange?: React.ChangeEventHandler<HTMLTextAreaElement>;
   }) => (
     <textarea
-      readOnly
       placeholder={placeholder}
       disabled={disabled}
       data-status={status}
+      value={value}
+      onChange={onChange}
     />
   ),
   PromptInputSubmit: ({ status }: { status?: string }) => (
@@ -147,19 +164,32 @@ vi.mock("./chat-message", () => ({
     message,
     editor,
     onEditStart,
+    onMessageDelete,
+    staleToolCallIds,
   }: {
     message: PlatypusUIMessage;
     editor?: React.ReactNode;
     onEditStart: (messageId: string) => void;
-  }) => (
-    <div>
-      {editor ?? (
-        <button type="button" onClick={() => onEditStart(message.id)}>
-          Edit {message.id}
-        </button>
-      )}
-    </div>
-  ),
+    onMessageDelete: (messageId: string) => void;
+    staleToolCallIds?: ReadonlySet<string>;
+  }) => {
+    harness.chatMessageRenders += 1;
+    harness.lastChatMessageProps = { onMessageDelete, staleToolCallIds };
+    return (
+      <div>
+        {editor ?? (
+          <>
+            <button type="button" onClick={() => onEditStart(message.id)}>
+              Edit {message.id}
+            </button>
+            <button type="button" onClick={() => onMessageDelete(message.id)}>
+              Delete {message.id}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  },
 }));
 
 // Stubbed to what the Chat hands the edit surface, and to the one thing the
@@ -192,7 +222,12 @@ vi.mock("./message-editor", () => ({
     </div>
   ),
 }));
-vi.mock("./context-meter", () => ({ ContextMeter: () => null }));
+vi.mock("./context-meter", () => ({
+  ContextMeter: () => null,
+  ContextMeterEntrance: ({ children }: { children?: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
 vi.mock("./file-compatibility-warning", () => ({
   FileCompatibilityWarning: () => null,
 }));
@@ -201,12 +236,26 @@ vi.mock("./no-providers-empty-state", () => ({
 }));
 vi.mock("./model-selector-dialog", () => ({ ModelSelectorDialog: () => null }));
 vi.mock("./agent-info-dialog", () => ({ AgentInfoDialog: () => null }));
+
+// The info dialog opens from a composer button this file stubs to null, so the
+// open state is driven from the harness instead of through a click. Everything
+// else about the hook is left real, because the error-dialog tests below are
+// assertions about its actual behaviour.
+vi.mock("@/hooks/use-chat-ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-chat-ui")>();
+  return {
+    useChatUI: (...args: Parameters<typeof actual.useChatUI>) => ({
+      ...actual.useChatUI(...args),
+      isAgentInfoDialogOpen: harness.agentInfoDialogOpen,
+    }),
+  };
+});
 vi.mock("./chat-settings-dialog", () => ({
   ChatSettingsDialog: () => null,
   CHAT_MAX_STEPS_ERROR: "bad max steps",
 }));
-vi.mock("./error-dialog", () => ({
-  ErrorDialog: ({ isOpen }: { isOpen: boolean }) =>
+vi.mock("./chat-error-dialog", () => ({
+  ChatErrorDialog: ({ isOpen }: { isOpen: boolean }) =>
     isOpen ? <div role="dialog">Chat Error</div> : null,
 }));
 
@@ -220,7 +269,7 @@ const CHAT_KEY = `http://test/organizations/org1/workspaces/ws1/chat/${CHAT_ID}`
 const provider = {
   id: "p1",
   name: "OpenRouter",
-  modelIds: [{ id: "m1", passthroughFileTypes: [] }],
+  modelIds: [{ id: "m1", passthroughFileTypes: [], contextWindow: 1000 }],
 };
 
 const message = (id: string, text: string): PlatypusUIMessage =>
@@ -281,6 +330,11 @@ beforeEach(() => {
   harness.sendMessage.mockReset();
   harness.chatMutate.mockReset();
   harness.chatMutate.mockResolvedValue(undefined);
+  harness.agentsMutate.mockReset();
+  harness.agentsMutate.mockResolvedValue(undefined);
+  harness.agentInfoDialogOpen = false;
+  harness.chatMessageRenders = 0;
+  harness.lastChatMessageProps = null;
 });
 
 describe("Chat detail read", () => {
@@ -611,5 +665,164 @@ describe("editing a message", () => {
 
     expect(screen.getAllByTestId("editor")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Edit u2" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #869: the transcript re-rendered on every streamed token and every
+ * composer keystroke. `ChatMessage` is memoised, so what defeated it was the
+ * props changing identity — the cleared-tool-call Set and the delete callback
+ * — and the composer's input state living in `Chat`, so a keystroke re-rendered
+ * the whole tree.
+ */
+describe("transcript stability", () => {
+  it("keeps the stale tool-call set and the delete callback stable across renders", () => {
+    harness.turn.messages = [message("u1", "q"), message("a1", "a")];
+    const view = renderChat();
+    const first = harness.lastChatMessageProps!;
+
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+
+    expect(harness.lastChatMessageProps!.onMessageDelete).toBe(
+      first.onMessageDelete,
+    );
+    expect(harness.lastChatMessageProps!.staleToolCallIds).toBe(
+      first.staleToolCallIds,
+    );
+  });
+
+  it("deletes through an updater, so the callback need not close over the list", () => {
+    harness.turn.messages = [message("u1", "q"), message("a1", "a")];
+    renderChat();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete u1" }));
+
+    const update = harness.setMessages.mock.calls.at(-1)?.[0] as (
+      held: PlatypusUIMessage[],
+    ) => PlatypusUIMessage[];
+    expect(typeof update).toBe("function");
+    expect(update(harness.turn.messages).map((m) => m.id)).toEqual(["a1"]);
+  });
+
+  it("does not re-render the transcript while the composer is typed into", () => {
+    harness.turn.messages = [message("u1", "q"), message("a1", "a")];
+    renderChat();
+    const before = harness.chatMessageRenders;
+
+    fireEvent.change(
+      screen.getByPlaceholderText("What would you like to know?"),
+      { target: { value: "hello" } },
+    );
+
+    expect(harness.chatMessageRenders).toBe(before);
+  });
+
+  // With clearing ACTIVE the set is non-empty, and the function rebuilds it
+  // from `messages` — which changes on every streamed token. Identity has to
+  // survive that too, or every token re-renders the transcript exactly when a
+  // long chat (the reason clearing exists) is streaming (issue #869).
+  it("keeps the cleared tool-call set stable while a reply streams", () => {
+    harness.data.set(`/chat/${CHAT_ID}`, {
+      id: CHAT_ID,
+      status: "running",
+      providerId: "p1",
+      modelId: "m1",
+      messages: [],
+    });
+    const toolResults = ["t0", "t1", "t2", "t3", "t4", "t5"].map(
+      (toolCallId) =>
+        ({
+          id: `a-${toolCallId}`,
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-read_url",
+              toolCallId,
+              state: "output-available",
+              input: {},
+              output: {},
+            },
+          ],
+          metadata: {
+            readOnlyToolNames: ["read_url"],
+            // 700/1000 is at the clearing threshold; keep-recent is 4, so t0
+            // and t1 are stale.
+            contextOccupancy: { inputTokens: 700, outputTokens: 0 },
+          },
+        }) as unknown as PlatypusUIMessage,
+    );
+    harness.turn.messages = [...toolResults, message("a-last", "an answer")];
+    const view = renderChat();
+    const first = harness.lastChatMessageProps!.staleToolCallIds;
+    expect(first?.size).toBe(2);
+
+    harness.turn.messages = [
+      ...toolResults,
+      message("a-last", "an answer, still streaming"),
+    ];
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+
+    expect(harness.lastChatMessageProps!.staleToolCallIds).toBe(first);
+  });
+});
+
+// An Agent carrying the agent-management tools can rewrite its own row mid-chat,
+// and the write lands on the server: this read is not told, and no interval or
+// mutate anywhere else touches it. The info dialog is the only place that
+// configuration is shown, so opening it is the moment worth spending a request
+// on (issue #920).
+describe("the Agent behind the info dialog", () => {
+  const openInfoDialog = (view: ReturnType<typeof renderChat>) => {
+    harness.agentInfoDialogOpen = true;
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+  };
+
+  it("does not re-read the Agents while the dialog is closed", () => {
+    renderChat();
+
+    expect(harness.agentsMutate).not.toHaveBeenCalled();
+  });
+
+  it("re-reads the Agents when the dialog opens", () => {
+    const view = renderChat();
+
+    openInfoDialog(view);
+
+    expect(harness.agentsMutate).toHaveBeenCalledTimes(1);
+  });
+
+  // The trigger is the open transition, not the render. A Chat re-renders on
+  // every streamed chunk, and a request per chunk for a dialog that is already
+  // showing the answer would be worse than the staleness it fixes.
+  it("re-reads once, however many times it re-renders while open", () => {
+    const view = renderChat();
+    openInfoDialog(view);
+
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+
+    expect(harness.agentsMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads again the next time the dialog is opened", () => {
+    const view = renderChat();
+    openInfoDialog(view);
+
+    harness.agentInfoDialogOpen = false;
+    view.rerender(<Chat orgId="org1" workspaceId="ws1" chatId={CHAT_ID} />);
+    openInfoDialog(view);
+
+    expect(harness.agentsMutate).toHaveBeenCalledTimes(2);
+  });
+
+  // The dialog keeps showing the cached row when the re-read fails, which is
+  // what it does without the re-read at all. Nothing to report, nothing to
+  // leave unhandled.
+  it("swallows a failed re-read", async () => {
+    harness.agentsMutate.mockRejectedValue(new Error("offline"));
+    const view = renderChat();
+
+    expect(() => openInfoDialog(view)).not.toThrow();
+    await Promise.resolve();
   });
 });

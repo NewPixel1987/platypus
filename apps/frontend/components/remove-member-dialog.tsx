@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { type OrgMemberListItem } from "@platypus/schemas";
-import { useBackendUrl } from "@/app/client-context";
+import { useBackendUrl } from "@/components/auth-provider";
 import { writeEntity } from "@/lib/api-write";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";

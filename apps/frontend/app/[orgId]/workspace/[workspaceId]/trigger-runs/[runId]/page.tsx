@@ -20,8 +20,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { mergeRunEvents, nextSinceSeq } from "@/lib/run-timeline";
 
@@ -98,7 +97,11 @@ const TriggerRunDetailPage = ({
 
   return (
     <div className="flex justify-center pb-8">
-      <div className="w-full px-4 md:px-0 xl:w-4/5 max-w-4xl">
+      {/* The side gutter stays at every width: between the tablet and desktop
+      breakpoints the column is the full content area, and without it the list
+      touched the sidebar on one side and the viewport on the other. The
+      widths are the workspace home page's, so the two read as one app. */}
+      <div className="w-full px-4 md:px-8 xl:w-4/5 max-w-4xl">
         <BackButton fallbackHref={listHref} />
         <h1 className="text-2xl mb-1 font-bold">Trigger run</h1>
         <p className="text-muted-foreground mb-4">

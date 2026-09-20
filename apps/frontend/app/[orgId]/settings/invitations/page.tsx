@@ -4,7 +4,6 @@ import { useParams } from "next/navigation";
 import { InvitationForm } from "@/components/invitation-form";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
 import {
   type InvitationListItem,
   type Organization,
@@ -14,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Mail, Copy } from "lucide-react";
 import { toast } from "sonner";
 import useSWR from "swr";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import {

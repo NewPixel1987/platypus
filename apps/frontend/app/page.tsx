@@ -6,7 +6,6 @@ import Link from "next/link";
 import { AlertCircle, Building, Plus } from "lucide-react";
 import useSWR from "swr";
 import { fetcher, joinUrl } from "@/lib/utils";
-import { useBackendUrl } from "./client-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Header } from "@/components/header";
@@ -18,7 +17,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 

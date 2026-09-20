@@ -22,8 +22,7 @@ import type { Workspace } from "@platypus/schemas";
 import useSWR from "swr";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 
 // Apply a Blueprint to an existing Workspace (ADR-0008). The macro is additive
 // and idempotent, so re-applying only attaches what is missing — we report the

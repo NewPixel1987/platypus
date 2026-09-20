@@ -23,11 +23,10 @@ import { vi, type Mock } from "vitest";
  *
  * ```ts
  * import {
- *   navigationMock, configMock, authMock, toastMock, swrMock,
+ *   navigationMock, authMock, toastMock, swrMock,
  * } from "@/lib/form-test-harness";
  *
  * vi.mock("next/navigation", () => navigationMock);
- * vi.mock("@/app/client-context", () => configMock);
  * vi.mock("@/components/auth-provider", () => authMock);
  * vi.mock("sonner", () => toastMock);
  * vi.mock("swr", () => swrMock);
@@ -36,6 +35,7 @@ import { vi, type Mock } from "vitest";
 
 export interface SwrResponse<T = unknown> {
   data: T;
+  error?: unknown;
   isLoading: boolean;
   mutate: Mock;
 }
@@ -47,14 +47,16 @@ export const toastInfo = vi.fn();
 export const configuredMutate = vi.fn();
 
 export const navigationMock = { useRouter: () => ({ push }) };
-export const configMock = { useBackendUrl: () => "http://test" };
-export const authMock = { useAuth: () => ({ user: { id: "u1" } }) };
+export const authMock = {
+  useAuth: () => ({ user: { id: "u1" } }),
+  useBackendUrl: () => "http://test",
+};
 export const toastMock = {
   toast: { error: toastError, success: toastSuccess, info: toastInfo },
 };
 
 function buildResponse(data: unknown): SwrResponse {
-  return { data, isLoading: false, mutate: vi.fn() };
+  return { data, error: undefined, isLoading: false, mutate: vi.fn() };
 }
 
 const nullResponse: SwrResponse = buildResponse(undefined);
@@ -76,6 +78,24 @@ export function setData(data: unknown) {
 /** Sets the response returned for a key ending in `keySuffix`. */
 export function setDataFor(keySuffix: string, data: unknown) {
   responsesByKeySuffix.set(keySuffix, buildResponse(data));
+}
+
+/**
+ * Makes the read for a key ending in `keySuffix` fail. With no suffix, every
+ * read with no more specific match fails — the cold detail read a form's
+ * failure state exists for.
+ */
+export function setError(error: unknown, keySuffix?: string) {
+  if (keySuffix) {
+    const response =
+      responsesByKeySuffix.get(keySuffix) ?? buildResponse(undefined);
+    response.error = error;
+    responsesByKeySuffix.set(keySuffix, response);
+    return;
+  }
+  // Copied rather than mutated: the default may still be the shared null
+  // response, and setting `error` on that would leak into every null key.
+  defaultResponse = { ...defaultResponse, error };
 }
 
 function swrFetcher(key: string | null): SwrResponse {

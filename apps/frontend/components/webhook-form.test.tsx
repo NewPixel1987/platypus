@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   navigationMock,
-  configMock,
   authMock,
   toastMock,
   swrMock,
@@ -15,7 +14,6 @@ import {
 // --- Module mocks ------------------------------------------------------------
 
 vi.mock("next/navigation", () => navigationMock);
-vi.mock("@/app/client-context", () => configMock);
 vi.mock("@/components/auth-provider", () => authMock);
 vi.mock("sonner", () => toastMock);
 // The create form never keys a fetch off a webhook id, so SWR never loads

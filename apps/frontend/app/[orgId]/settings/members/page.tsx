@@ -1,13 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useBackendUrl } from "@/app/client-context";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { type OrgMemberListItem, type Organization } from "@platypus/schemas";
 import { MembersList } from "@/components/members-list";
 import { Users } from "lucide-react";
 import useSWR from "swr";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 
 const OrgMembersPage = () => {
   const { user } = useAuth();

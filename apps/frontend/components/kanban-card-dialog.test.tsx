@@ -16,11 +16,8 @@ beforeAll(() => {
 
 // --- Module mocks ------------------------------------------------------------
 
-vi.mock("@/app/client-context", () => ({
-  useBackendUrl: () => "http://test",
-}));
-
 vi.mock("@/components/auth-provider", () => ({
+  useBackendUrl: () => "http://test",
   useAuth: () => ({ user: { id: "u1", name: "Alice", image: null } }),
 }));
 
@@ -75,6 +72,14 @@ function jsonResponse(status: number, body: unknown) {
   } as unknown as Response;
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
 function renderDialog() {
   return render(
     <KanbanCardDialog
@@ -98,6 +103,7 @@ afterEach(() => {
   mutateCommentsSpy.mockClear();
   toastErrorSpy.mockClear();
   vi.restoreAllMocks();
+  setViewportWidth(1024);
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
     addEventListener: vi.fn(),
@@ -178,5 +184,34 @@ describe("KanbanCardDialog delete comment", () => {
       expect(toastErrorSpy).toHaveBeenCalledWith("Comment already deleted"),
     );
     expect(mutateCommentsSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("KanbanCardDialog mobile composition", () => {
+  it("composes the same sections into tabs instead of the desktop split", () => {
+    setViewportWidth(375);
+    comments = [existingComment];
+
+    renderDialog();
+
+    // The tabs are the mobile-only container; the details tab composes the
+    // same title/body/metadata sections the desktop layout shows.
+    expect(screen.getByRole("tab", { name: "Details" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Comments" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "History" })).toBeInTheDocument();
+    expect(screen.getByText("Ship the release")).toBeInTheDocument();
+    expect(screen.getByText("Priority")).toBeInTheDocument();
+
+    // The comments section is not mounted until its tab is selected.
+    expect(
+      screen.queryByPlaceholderText("Add a comment..."),
+    ).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Comments" }), {
+      button: 0,
+    });
+    expect(screen.getByText("First comment")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Add a comment..."),
+    ).toBeInTheDocument();
   });
 });

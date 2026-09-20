@@ -7,7 +7,7 @@ import { fetcher, joinUrl } from "@/lib/utils";
 import { writeEntity } from "@/lib/api-write";
 import { toast } from "sonner";
 import type { Workspace, ChatListItem, Organization } from "@platypus/schemas";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import {
   Sidebar,
   SidebarContent,
@@ -40,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   FolderOpen,
   BotMessageSquare,
@@ -61,12 +61,14 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
-import { useBackendUrl } from "@/app/client-context";
 import { TagInput } from "@/components/tag-input";
 import { useIsMobile } from "@/hooks/use-mobile";
-
-/** How often to re-read the chat list while at least one chat is running. */
-const RUNNING_CHAT_POLL_INTERVAL_MS = 3000;
+import {
+  activeChatIdFromPathname,
+  chatListPoll,
+  type WatchedChat,
+} from "@/lib/chat-list-poll";
+import { orgRoutes, workspaceRoutes } from "@/lib/routes";
 
 export function AppSidebar() {
   const { orgId, workspaceId } = useParams<{
@@ -76,6 +78,9 @@ export function AppSidebar() {
   const { user } = useAuth();
   const backendUrl = useBackendUrl();
   const isMobile = useIsMobile();
+
+  const routes = workspaceRoutes(orgId, workspaceId);
+  const org = orgRoutes(orgId);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -92,6 +97,9 @@ export function AppSidebar() {
   const [isTogglingPin, setIsTogglingPin] = useState(false);
 
   const { mutate } = useSWRConfig();
+
+  const activeChatId = activeChatIdFromPathname(pathname, orgId, workspaceId);
+  const watchedChatsRef = useRef<WatchedChat[]>([]);
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -133,15 +141,26 @@ export function AppSidebar() {
       : null,
     fetcher,
     {
-      // The per-chat spinner below is rendered straight off this cached list,
-      // and nothing else revalidates it when a run finishes — including runs in
-      // chats the user isn't currently viewing, where the client has no stream
-      // to hang a terminal event off. Poll while any listed chat is running;
-      // the condition clears itself once the backend reports a terminal status.
-      refreshInterval: (latest) =>
-        latest?.results.some((chat) => chat.status === "running")
-          ? RUNNING_CHAT_POLL_INTERVAL_MS
-          : 0,
+      // Nothing else revalidates this list: not the per-chat spinner rendered
+      // off it, not the chat row the backend creates when a run starts, not
+      // the title written after that run ends. See `lib/chat-list-poll` for
+      // what each poll waits on and how it stops.
+      //
+      // SWR calls this when it arms the next timer — on every render and after
+      // every fetch — which is also when the set of chats being waited on is
+      // worth recomputing: a route change is a render, and a chat arriving is
+      // a fetch.
+      refreshInterval: (latest) => {
+        const { watched, intervalMs } = chatListPoll({
+          watched: watchedChatsRef.current,
+          listed: latest?.results,
+          activeChatId,
+          now: Date.now(),
+          isSearching: debouncedSearch !== "",
+        });
+        watchedChatsRef.current = watched;
+        return intervalMs;
+      },
     },
   );
 
@@ -253,12 +272,8 @@ export function AppSidebar() {
       setDeleteChatId(null);
 
       // Navigate to the main chat page if we were on the deleted chat
-      if (
-        pathname.startsWith(
-          `/${orgId}/workspace/${workspaceId}/chat/${deleteChatId}`,
-        )
-      ) {
-        router.push(`/${orgId}/workspace/${workspaceId}/chat`);
+      if (pathname.startsWith(routes.chat.detail(deleteChatId))) {
+        router.push(routes.chat.root);
       }
 
       // Revalidate the chat list
@@ -325,7 +340,7 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                  className="w-56"
+                  className="w-56 bg-sidebar-panel"
                   align="start"
                   side={isMobile ? "bottom" : "right"}
                 >
@@ -334,7 +349,10 @@ export function AppSidebar() {
                   </DropdownMenuLabel>
                   <DropdownMenuGroup>
                     {workspaces.map((workspace) => {
-                      const href = `/${workspace.organizationId}/workspace/${workspace.id}`;
+                      const href = workspaceRoutes(
+                        workspace.organizationId,
+                        workspace.id,
+                      ).root;
                       return (
                         <DropdownMenuItem key={workspace.id} asChild>
                           <Link className="cursor-pointer" href={href}>
@@ -354,13 +372,13 @@ export function AppSidebar() {
                     <DropdownMenuItem asChild>
                       <Link
                         className="cursor-pointer"
-                        href={`/${orgId}/create`}
+                        href={org.createWorkspace}
                       >
                         <Plus /> Add workspace
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link className="cursor-pointer" href={`/${orgId}`}>
+                      <Link className="cursor-pointer" href={org.root}>
                         <ArrowLeftRight /> Switch org
                       </Link>
                     </DropdownMenuItem>
@@ -370,7 +388,7 @@ export function AppSidebar() {
             </SidebarMenuItem>
             <SidebarMenuItem>
               <Button asChild className="w-full">
-                <Link href={`/${orgId}/workspace/${workspaceId}/chat`}>
+                <Link href={routes.chat.root}>
                   <BotMessageSquare /> New chat
                 </Link>
               </Button>
@@ -421,12 +439,10 @@ export function AppSidebar() {
                           <SidebarMenuButton
                             asChild
                             isActive={pathname.startsWith(
-                              `/${orgId}/workspace/${workspaceId}/chat/${chat.id}`,
+                              routes.chat.detail(chat.id),
                             )}
                           >
-                            <Link
-                              href={`/${orgId}/workspace/${workspaceId}/chat/${chat.id}`}
-                            >
+                            <Link href={routes.chat.detail(chat.id)}>
                               {chat.status === "running" && (
                                 <Loader2
                                   className="h-3 w-3 shrink-0 animate-spin text-muted-foreground"

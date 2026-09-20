@@ -26,8 +26,9 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, joinUrl } from "@/lib/utils";
 import { NoProvidersEmptyState } from "@/components/no-providers-empty-state";
-import { useBackendUrl } from "@/app/client-context";
-import { useAuth } from "@/components/auth-provider";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
+import { useScopedSWR } from "@/hooks/use-scoped-swr";
+import { workspaceEntity } from "@/lib/api-write";
 import {
   type Workspace as WorkspaceType,
   type Organization,
@@ -42,15 +43,7 @@ const Workspace = () => {
   const backendUrl = useBackendUrl();
 
   const { data: workspaceData, isLoading: isLoadingWorkspace } =
-    useSWR<WorkspaceType>(
-      backendUrl && user
-        ? joinUrl(
-            backendUrl,
-            `/organizations/${orgId}/workspaces/${workspaceId}`,
-          )
-        : null,
-      fetcher,
-    );
+    useScopedSWR<WorkspaceType>(workspaceEntity(workspaceId), { orgId });
 
   const { data: agentsData, isLoading: isLoadingAgents } = useSWR<{
     results: [];

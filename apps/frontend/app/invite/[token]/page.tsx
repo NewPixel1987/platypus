@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { useAuth } from "@/components/auth-provider";
-import { useBackendUrl } from "@/app/client-context";
+import { useAuth, useBackendUrl } from "@/components/auth-provider";
 import { optionalFetcher, joinUrl } from "@/lib/utils";
 import { writeAt } from "@/lib/api-write";
 import { Button } from "@/components/ui/button";
