@@ -21,6 +21,14 @@ describe("Invitation Link Routes", () => {
 
   const baseUrl = "/invitation-links";
   const INVALID_LINK_BODY = { error: "This invitation link is not valid" };
+  // The account exists and is signed in; only the invitation is gone. The
+  // register route says so rather than reporting a bare not-found/expired.
+  const ACCOUNT_WITHOUT_INVITATION_BODY = {
+    error:
+      "Your account was created and you are signed in, but this invitation " +
+      "was already used or has expired. Ask whoever invited you to send a " +
+      "new one.",
+  };
 
   const futureDate = () => {
     const d = new Date();
@@ -264,10 +272,8 @@ describe("Invitation Link Routes", () => {
         headers: { "Content-Type": "application/json" },
       });
 
-      expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({
-        error: "Invitation not found or already processed",
-      });
+      expect(res.status).toBe(410);
+      expect(await res.json()).toEqual(ACCOUNT_WITHOUT_INVITATION_BODY);
     });
 
     it("reports the invitation as expired when it lapses between resolution and accept", async () => {
@@ -289,7 +295,7 @@ describe("Invitation Link Routes", () => {
       });
 
       expect(res.status).toBe(410);
-      expect(await res.json()).toEqual({ error: "Invitation has expired" });
+      expect(await res.json()).toEqual(ACCOUNT_WITHOUT_INVITATION_BODY);
     });
 
     it("rejects a password shorter than 8 characters before touching the token", async () => {

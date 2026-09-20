@@ -9,6 +9,7 @@ import {
 } from "../db/schema.ts";
 import { WORKSPACE_NAME_MAX_LENGTH } from "@platypus/schemas";
 import { applyBlueprintsToWorkspace } from "./blueprint-apply.ts";
+import { NotFoundError } from "../errors.ts";
 
 /**
  * Possessive form of a name for the default Workspace name (ADR-0008).
@@ -31,7 +32,6 @@ const defaultWorkspaceName = (name: string): string => {
 
 export type AcceptInvitationResult =
   | { outcome: "accepted"; organizationId: string; workspaceId: string }
-  | { outcome: "not_found" }
   | { outcome: "expired" };
 
 /**
@@ -43,6 +43,11 @@ export type AcceptInvitationResult =
  * invitation-link redemption routes (a token holder, freshly registered or
  * already signed in, accepting by token) — one implementation, so a
  * link-based accept can never drift from the account-based one.
+ *
+ * Throws `NotFoundError` when no pending invitation matches the id and the
+ * user's address, so the central `onError` answers it (ADR-0010). Expiry
+ * stays a returned outcome: it has no typed error, and it writes the
+ * `expired` status before reporting.
  */
 export async function acceptInvitationForUser(
   invitationId: string,
@@ -65,7 +70,7 @@ export async function acceptInvitationForUser(
       .limit(1);
 
     if (invitation.length === 0) {
-      return { outcome: "not_found" };
+      throw new NotFoundError("Invitation not found or already processed");
     }
 
     // Read the clock after acquiring the lock: an invitation can expire while

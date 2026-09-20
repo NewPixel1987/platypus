@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "../auth.ts";
 import { requireAuth } from "../middleware/authentication.ts";
 import { acceptInvitationForUser } from "../services/invitation-accept.ts";
+import { NotFoundError } from "../errors.ts";
 import { acceptResultResponse } from "./invitation-accept-response.ts";
 import { invitationRedemptionRegisterSchema } from "@platypus/schemas";
 import type { Variables } from "../server.ts";
@@ -25,6 +26,14 @@ import type { Variables } from "../server.ts";
 const invitationLink = new Hono<{ Variables: Variables }>();
 
 const INVALID_LINK_ERROR = "This invitation link is not valid";
+
+// Reported when the invitation is redeemed or expires between resolving the
+// token and accepting it, after the account has already been created and
+// signed in. Naming the account is the point: the person holds one now, and
+// re-opening the link would only tell them it is invalid.
+const ACCOUNT_WITHOUT_INVITATION_ERROR =
+  "Your account was created and you are signed in, but this invitation was " +
+  "already used or has expired. Ask whoever invited you to send a new one.";
 
 // better-auth's admin createUser rejects a duplicate email with this stable
 // error code. Matching the code keeps the 409 working if the message text is
@@ -169,17 +178,29 @@ invitationLink.post(
       c.header("set-cookie", cookie, { append: true });
     }
 
-    const result = await acceptInvitationForUser(resolved.id, {
-      id: userId,
-      name,
-      email: resolved.email,
-    });
+    // The token was valid moments ago (`resolved` above), so a failure here
+    // means it was redeemed or expired in the gap. The account this route
+    // just created is real and signed in either way, and no retry of the
+    // link can recover it — so say so plainly instead of letting the bare
+    // not-found/expired response imply nothing happened.
+    let result;
+    try {
+      result = await acceptInvitationForUser(resolved.id, {
+        id: userId,
+        name,
+        email: resolved.email,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return c.json({ error: ACCOUNT_WITHOUT_INVITATION_ERROR }, 410);
+      }
+      throw error;
+    }
 
-    // The token was valid moments ago (`resolved` above); a `not_found` or
-    // `expired` outcome here means it was redeemed or expired in the gap.
-    // The account this route just created is real and signed in either way,
-    // so this reports the invitation-specific failure rather than the
-    // generic link error, which would now be misleading.
+    if (result.outcome === "expired") {
+      return c.json({ error: ACCOUNT_WITHOUT_INVITATION_ERROR }, 410);
+    }
+
     return acceptResultResponse(c, result);
   },
 );
