@@ -47,7 +47,6 @@ import {
   isValidElement,
   useContext,
 } from "react";
-import { CodeBlock } from "./code-block";
 import { ToolDuration } from "../tool-duration";
 
 /**
@@ -245,7 +244,7 @@ export const Tool = ({
   return (
     <ToolContext.Provider value={{ isOpen }}>
       <Collapsible
-        className={cn("not-prose w-full min-w-0", className)}
+        className={cn("w-full min-w-0", className)}
         open={isOpen}
         onOpenChange={setIsOpen}
         {...props}
@@ -399,18 +398,30 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   />
 );
 
+/**
+ * How a tool's Parameters and Result panels are drawn: preformatted text that
+ * scrolls on its own axis, so a long unbroken value — a URL, a base64 blob —
+ * is reachable rather than clipped (issue #922).
+ *
+ * `text-foreground` is on the panel rather than on either section, so the two
+ * read as one pair. `ToolContent` mutes everything under it — that is right
+ * for the section headings and wrong for the data, and the Result section
+ * used to be the only one that said so.
+ */
+const toolPanelClassName = "overflow-auto p-4 text-xs text-foreground";
+
 export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolUIPart["input"];
 };
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+  <div className={cn("space-y-2", className)} {...props}>
     <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
       Parameters
     </h4>
-    <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
-    </div>
+    <pre className={cn(toolPanelClassName, "rounded-md bg-muted/50")}>
+      {JSON.stringify(input, null, 2)}
+    </pre>
   </div>
 );
 
@@ -433,10 +444,12 @@ export const ToolOutput = ({
 
   if (typeof output === "object" && !isValidElement(output)) {
     Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
+      <pre className={toolPanelClassName}>
+        {JSON.stringify(output, null, 2)}
+      </pre>
     );
   } else if (typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />;
+    Output = <pre className={toolPanelClassName}>{output}</pre>;
   }
 
   return (

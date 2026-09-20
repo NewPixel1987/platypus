@@ -22,3 +22,11 @@ The `SandboxBackend` interface defines exactly five tools — `shell.exec`, `fs.
 - `shell.exec` has a default 60s timeout and a hard cap of 600s. No `fs.delete`/`mkdir`/`move`/`copy` — the shell handles those.
 - The orientation block lives in `apps/backend/src/system-prompt.ts` alongside existing per-tool-set fragments. It teaches the model the load-bearing facts that aren't visible from individual tool descriptions: persistence across turns, statelessness of the shell, root path, truncation behaviour, and timeouts.
 - Concurrency is _not_ serialised at the Platypus layer; tool calls are forwarded to adapters concurrently. The "Sandbox is a Linux box" mental model — i.e. parallel commands may race — is the contract.
+
+## Amended by ADR-0025
+
+ADR-0025 narrows one claim above: "Adapters cannot add tools, rename tools, or
+change signatures." Adapters still cannot — but **core** appended an optional
+`SandboxCallOptions` argument to all five tool methods, carrying the call's
+`AbortSignal`. The fixed five-tool core, the stateless shell semantics, and the
+model-facing tool surface are all unchanged. See ADR-0025 for the reasoning.
