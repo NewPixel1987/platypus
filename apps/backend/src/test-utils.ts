@@ -371,7 +371,10 @@ export const mockCreateUserAlreadyExists = () => {
   mockAuth.api.createUser.mockRejectedValue(
     Object.assign(new Error("User already exists. Use another email."), {
       status: "BAD_REQUEST",
-      body: { message: "User already exists. Use another email." },
+      body: {
+        code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+        message: "User already exists. Use another email.",
+      },
     }),
   );
 };

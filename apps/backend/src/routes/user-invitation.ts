@@ -8,10 +8,8 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middleware/authentication.ts";
 import type { Variables } from "../server.ts";
-import {
-  acceptInvitationForUser,
-  acceptResultResponse,
-} from "../services/invitation-accept.ts";
+import { acceptInvitationForUser } from "../services/invitation-accept.ts";
+import { acceptResultResponse } from "./invitation-accept-response.ts";
 
 const userInvitation = new Hono<{ Variables: Variables }>();
 

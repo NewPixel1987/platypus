@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RevealableInput } from "@/components/ui/revealable-input";
 import { Label } from "@/components/ui/label";
+import { InviteShell } from "../invite-shell";
 import type {
   InvitationAcceptResult,
   InvitationLinkResolution,
@@ -58,8 +59,6 @@ export default function InviteTokenPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
-
-  const invalid = !isLoading && (error !== undefined || data === null);
 
   // Land in the Workspace the accept just provisioned, not the root — for a
   // member of other Organizations "/" may resolve to a different one.
@@ -139,23 +138,21 @@ export default function InviteTokenPage() {
 
   if (isLoading || isAuthPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <InviteShell className="text-center">
         <p className="text-muted-foreground">Loading invitation...</p>
-      </div>
+      </InviteShell>
     );
   }
 
-  if (invalid || !data) {
+  if (error !== undefined || !data) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="w-full max-w-md space-y-4 p-8 text-center">
-          <h1 className="text-2xl font-bold">Invitation not found</h1>
-          <p className="text-muted-foreground">
-            This invitation link is not valid. It may have already been used,
-            declined, or expired. Ask whoever invited you to send a new one.
-          </p>
-        </div>
-      </div>
+      <InviteShell className="space-y-4 text-center">
+        <h1 className="text-2xl font-bold">Invitation not found</h1>
+        <p className="text-muted-foreground">
+          This invitation link is not valid. It may have already been used,
+          declined, or expired. Ask whoever invited you to send a new one.
+        </p>
+      </InviteShell>
     );
   }
 
@@ -163,140 +160,128 @@ export default function InviteTokenPage() {
   // offer sign-out, and leave the Invitation pending (untouched).
   if (user && user.email !== data.email) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="w-full max-w-md space-y-4 p-8 text-center">
-          <h1 className="text-2xl font-bold">Wrong account</h1>
-          <p className="text-muted-foreground">
-            This invitation to join{" "}
-            <span className="font-bold">{data.organizationName}</span> was sent
-            to <span className="font-bold">{data.email}</span>, but you are
-            signed in as <span className="font-bold">{user.email}</span>.
-          </p>
-          <Button onClick={handleSignOut} className="w-full">
-            Sign out
-          </Button>
-        </div>
-      </div>
+      <InviteShell className="space-y-4 text-center">
+        <h1 className="text-2xl font-bold">Wrong account</h1>
+        <p className="text-muted-foreground">
+          This invitation to join{" "}
+          <span className="font-bold">{data.organizationName}</span> was sent to{" "}
+          <span className="font-bold">{data.email}</span>, but you are signed in
+          as <span className="font-bold">{user.email}</span>.
+        </p>
+        <Button onClick={handleSignOut} className="w-full">
+          Sign out
+        </Button>
+      </InviteShell>
     );
   }
 
   // Signed in as the invited address: a single Accept action.
   if (user && user.email === data.email) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="w-full max-w-md space-y-6 p-8 text-center">
-          <div>
-            <h1 className="text-2xl font-bold">You&apos;re invited</h1>
-            <p className="text-muted-foreground mt-2">
-              Join <span className="font-bold">{data.organizationName}</span> as{" "}
-              {data.email}.
-            </p>
-          </div>
-          {formError && (
-            <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
-              {formError}
-            </div>
-          )}
-          <Button
-            onClick={handleAccept}
-            className="w-full"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Accepting..." : "Accept invitation"}
-          </Button>
+      <InviteShell className="space-y-6 text-center">
+        <div>
+          <h1 className="text-2xl font-bold">You&apos;re invited</h1>
+          <p className="text-muted-foreground mt-2">
+            Join <span className="font-bold">{data.organizationName}</span> as{" "}
+            {data.email}.
+          </p>
         </div>
-      </div>
+        {formError && (
+          <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
+            {formError}
+          </div>
+        )}
+        <Button
+          onClick={handleAccept}
+          className="w-full"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Accepting..." : "Accept invitation"}
+        </Button>
+      </InviteShell>
     );
   }
 
   // No session: register or sign in here, retaining the resolved token.
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="w-full max-w-md space-y-8 p-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">You&apos;re invited</h1>
-          <p className="text-muted-foreground mt-2">
-            {isSigningIn ? "Sign in to join " : "Create an account to join "}
-            <span className="font-bold">{data.organizationName}</span>.
-          </p>
+    <InviteShell className="space-y-8">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold">You&apos;re invited</h1>
+        <p className="text-muted-foreground mt-2">
+          {isSigningIn ? "Sign in to join " : "Create an account to join "}
+          <span className="font-bold">{data.organizationName}</span>.
+        </p>
+      </div>
+
+      <form
+        onSubmit={isSigningIn ? handleSignIn : handleRegister}
+        className="space-y-4"
+      >
+        {formError && (
+          <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
+            {formError}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" type="email" value={data.email} disabled readOnly />
         </div>
 
-        <form
-          onSubmit={isSigningIn ? handleSignIn : handleRegister}
-          className="space-y-4"
-        >
-          {formError && (
-            <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
-              {formError}
-            </div>
-          )}
-
+        {!isSigningIn && (
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="name">Name</Label>
             <Input
-              id="email"
-              type="email"
-              value={data.email}
-              disabled
-              readOnly
-            />
-          </div>
-
-          {!isSigningIn && (
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-                required
-              />
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <RevealableInput
-              id="password"
-              placeholder={
-                isSigningIn ? "Your password" : "At least 8 characters"
-              }
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={isSigningIn ? undefined : 8}
+              id="name"
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
               required
-              disabled={isSubmitting}
             />
           </div>
+        )}
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting
-              ? isSigningIn
-                ? "Signing in..."
-                : "Creating account..."
-              : isSigningIn
-                ? "Sign in"
-                : "Accept invitation"}
-          </Button>
-        </form>
-        <Button
-          variant="link"
-          className="w-full"
-          disabled={isSubmitting}
-          onClick={() => {
-            setIsSigningIn(!isSigningIn);
-            setFormError(null);
-            setPassword("");
-          }}
-        >
-          {isSigningIn
-            ? "Need an account? Create one"
-            : "Already have an account? Sign in"}
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <RevealableInput
+            id="password"
+            placeholder={
+              isSigningIn ? "Your password" : "At least 8 characters"
+            }
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={isSigningIn ? undefined : 8}
+            required
+            disabled={isSubmitting}
+          />
+        </div>
+
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting
+            ? isSigningIn
+              ? "Signing in..."
+              : "Creating account..."
+            : isSigningIn
+              ? "Sign in"
+              : "Accept invitation"}
         </Button>
-      </div>
-    </div>
+      </form>
+      <Button
+        variant="link"
+        className="w-full"
+        disabled={isSubmitting}
+        onClick={() => {
+          setIsSigningIn(!isSigningIn);
+          setFormError(null);
+          setPassword("");
+        }}
+      >
+        {isSigningIn
+          ? "Need an account? Create one"
+          : "Already have an account? Sign in"}
+      </Button>
+    </InviteShell>
   );
 }

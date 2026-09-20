@@ -8,16 +8,28 @@ import {
 import { eq } from "drizzle-orm";
 import { auth } from "../auth.ts";
 import { requireAuth } from "../middleware/authentication.ts";
-import {
-  acceptInvitationForUser,
-  acceptResultResponse,
-} from "../services/invitation-accept.ts";
+import { acceptInvitationForUser } from "../services/invitation-accept.ts";
+import { acceptResultResponse } from "./invitation-accept-response.ts";
 import { invitationRedemptionRegisterSchema } from "@platypus/schemas";
 import type { Variables } from "../server.ts";
 
+/**
+ * Mounted at the top level as `/invitation-links`, deliberately without an
+ * Organization or Workspace scoping middleware. The person opening an
+ * invitation link has no session and no membership yet, so there is no scope
+ * to resolve from the path or the caller; the token in the URL is the
+ * credential, and each handler below checks it against the invitation row
+ * before doing anything. `POST /:token/accept` is the one route that also
+ * requires a session, because it acts on behalf of the signed-in user.
+ */
 const invitationLink = new Hono<{ Variables: Variables }>();
 
 const INVALID_LINK_ERROR = "This invitation link is not valid";
+
+// better-auth's admin createUser rejects a duplicate email with this stable
+// error code. Matching the code keeps the 409 working if the message text is
+// ever reworded.
+const USER_ALREADY_EXISTS_CODE = "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL";
 
 interface ValidInvitationLink {
   id: string;
@@ -133,10 +145,10 @@ invitationLink.post(
       });
       userId = created.user.id;
     } catch (error) {
-      const e = error as { status?: string; body?: { message?: string } };
+      const e = error as { status?: string; body?: { code?: string } };
       if (
         e.status === "BAD_REQUEST" &&
-        !!e.body?.message?.toLowerCase().includes("already exists")
+        e.body?.code === USER_ALREADY_EXISTS_CODE
       ) {
         return c.json(
           {
