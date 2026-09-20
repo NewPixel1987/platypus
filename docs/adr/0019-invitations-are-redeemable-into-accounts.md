@@ -1,6 +1,6 @@
 ---
 status: accepted-pending-implementation
-implemented-by: "#550"
+implemented-by: "#549, #550"
 ---
 
 # Invitations are redeemable into accounts
